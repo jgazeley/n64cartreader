@@ -2,7 +2,7 @@
 
 This repository contains the necessary information and files for building and operating a DIY N64 Cartridge Reader/Dumper. This device allows you to back up your N64 game ROMs and save files directly to a microSD card.
 
-This project is a modification of the versatile [sanni Cart Reader](https://github.com/sanni/cartreader).
+This project is a modification of the [sanni Cart Reader](https://github.com/sanni/cartreader).
 
 ![Device in Action](https://user-images.githubusercontent.com/89006649/187055008-d4ed1e56-0636-4c86-967c-e2c1d843efed.jpg)
 
