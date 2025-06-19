@@ -13,6 +13,7 @@ This project is a modification of the [sanni Cart Reader](https://github.com/san
   - [macOS / Linux](#macos--linux)
   - [Android](#android)
 - [Troubleshooting](#troubleshooting)
+- [Hardware Overview](#hardware-overview)
 - [Acknowledgements](#acknowledgements)
 
 ## Getting Started
@@ -71,14 +72,25 @@ You may occasionally see this message. It is a known software quirk. Simply sele
 
 The hardware for this project has evolved into three distinct components that can be combined to create different configurations. This allows for flexibility and modularity in both use and development.
 
-*(Suggestion: Add a high-quality photo here showing the three main physical boards: The Shield, the Single-Board Reader, and the Shield Adapter.)*
+### Single-Board Reader
+![Shield](hardware/board/kicad/board.png)
+_Single-Board Reader PCB_
+* **Status:** `Stable (ATmega2560)` and `Future (RP2040)`
+* **Description:** An all-in-one device integrating all components from the **Shield** and a microcontroller onto a single PCB.
+* **Versions:**
+    * **`Stable` ATmega2560 Version:** This version uses an ATmega2560 "embed" module and features a surface-mount N64 controller port.  
+
+
+    * **`Future` RP2040 Version:** A new board designed from the ground up with the RP2040.
+        * **Planned Features:** Buzzer for alerts and Easter egg tunes, status/busy LEDs, hardware configuration switches (e.g., for mute or different USB modes) 
+
 
 ---
 
 ### Shield
 ![Shield](hardware/shield/kicad/shield.png)
 _Shield PCB_
-* **Status:** `Stable / Mature`
+* **Status:** `Stable`
 * **Description:** A "Shield" PCB designed with the standard Arduino Mega 2560 footprint. It contains the N64 cartridge slot and all necessary interface hardware.
 * **Key Features:**
     * N64 Cartridge Slot
@@ -93,31 +105,15 @@ _Shield PCB_
 
 ---
 
-### Single-Board Reader
-![Shield](hardware/board/kicad/board.png)
-_Single-Board Reader PCB_
-* **Status:** `Mature (ATmega2560)` and `Future (RP2040)`
-* **Description:** An all-in-one device integrating all components from the **Shield** and a microcontroller onto a single PCB.
-* **Versions:**
-    * **`Stable` ATmega2560 Version:** This version uses an ATmega2560 "embed" module and features a surface-mount N64 controller port.  
-    (Files: `hardware/board/mega2560_stable/`)
-
-    * **`Future` RP2040 Version:** A new board designed from the ground up with the RP2040.
-        * **Planned Features:** Buzzer for alerts and Easter egg tunes, status/busy LEDs, hardware configuration switches (e.g., for mute or different USB modes) 
-        (Files: `hardware/board/rp2040_future/`)
-
----
-
 ### Shield Adapter for Pico
 ![Shield](hardware/adapter/kicad/adapter.png)
 _Adapter PCB_
-* **Status:** `Active Development`
+* **Status:** `Prototype`
 * **Description:** A bridge accessory, allowing the Raspberry Pi Pico to connect to the **Shield**.
 * **Key Features:**
     * A socket for a Raspberry Pi Pico.
     * Exact footprint of an Arduino Mega 2560.
 * **How to Use:** Solder a Pico to this adapter, then plug the adapter into the **Shield**.
-* **Files:** See `hardware/adapter/`
 
 ---
 
