@@ -1,13 +1,23 @@
 # N64 ROM/Save Dumper
 
-This device allows you to easily back up your Nintendo 64 game ROMs and save files.
+An open-source hardware and firmware solution for backing up N64 game cartridges over USB.  The reference implementation runs on a Raspberry Pi Pico (RP2040) with TinyUSB-CDC and supports:
 
-This project is a modification of the [sanni Cart Reader](https://github.com/sanni/cartreader).
+* **Interactive CLI mode** for diagnostics and small reads
+* **High-throughput streamer mode** that reads the full 8 MiB ROM in chunked bursts (up to \~1 MiB/s)
+* **Built-in CRC checking** and a test-pattern mode for link validation
+
+Host-side examples (Python and Win32 C) include live progress reporting and automatic integrity checks. Future work will add a USB Mass-Storage-Class interface, allowing the cartridge to appear as a standard drive for even simpler backups.
+
+
+
+This project is a Pico‐centric rework of the original [sanni Cart Reader](https://github.com/sanni/cartreader).
 
 ![Device in Action](https://user-images.githubusercontent.com/89006649/187055008-d4ed1e56-0636-4c86-967c-e2c1d843efed.jpg)
 
 ## Table of Contents
 - [Getting Started](#getting-started)
+- [Building & Flashing Firmware](#building--flashing-firmware)
+- [Host-Side Test Tools](#host-side-test-tools)
 - [Operating the Device](#operating-the-device)
   - [Windows](#windows)
   - [macOS / Linux](#macos--linux)
@@ -16,21 +26,30 @@ This project is a modification of the [sanni Cart Reader](https://github.com/san
 - [Hardware Overview](#hardware-overview)
 - [Acknowledgements](#acknowledgements)
 
+---
+
 ## Getting Started
+
+> ⚙️ **WIP:** This project is under development. Current instructions target the Raspberry Pi Pico.
 
 Follow these two steps before the first use.
 
-#### 1. What You'll Need
-* N64 Cart Reader device
-* A microSD Card (4 GB or larger)
+### 1. What You'll Need
+* N64 Cart Reader device (RP2040 + Shield or adapter)
 * A Micro-USB cable
-* A computer or Android device (with USB-OTG adapter)
+* A host computer (Windows, macOS, Linux) or Android device
 
-#### 2. Prepare the microSD Card
-A properly configured microSD card is required for operation. The device will display an `SD Error` if the card is missing or not set up correctly.
+### 2. Building & Flashing Firmware
 
-1.  **Format the Card**: Format your microSD card to FAT32 or exFAT.
-2.  **Add Config File**: [Download the `n64.txt` file](https://raw.githubusercontent.com/sanni/cartreader/master/sd/n64.txt) (right-click and "Save Link As...") and place it in the root directory of the card.
+1. **Clone & configure** in an out-of-source build directory:
+   ```bash
+   git clone https://github.com/you/pico-pak.git
+   cd pico-pak
+   mkdir build && cd build
+   cmake .. \
+     -G "NMake Makefiles" \             # or omit on Linux/macOS
+     -DENABLE_CLI=OFF \                  # stream-only mode
+     -DPICO_SDK_PATH="C:/path/to/pico-sdk"
 
 ## Operating the Device
 
@@ -70,52 +89,63 @@ You may occasionally see this message. It is a known software quirk. Simply sele
 
 ## Hardware Overview
 
-The hardware for this project has evolved into three distinct components that can be combined to create different configurations. This allows for flexibility and modularity in both use and development.
-
-### Single-Board Reader
-![Shield](hardware/board/kicad/board.png)
-_Single-Board Reader PCB_
-* **Status:** `Stable (ATmega2560)` and `Future (RP2040)`
-* **Description:** An all-in-one device integrating all components from the **Shield** and a microcontroller onto a single PCB.
-* **Versions:**
-    * **`Stable` ATmega2560 Version:** This version uses an ATmega2560 "embed" module and features a surface-mount N64 controller port.  
-
-
-    * **`Future` RP2040 Version:** A new board designed from the ground up with the RP2040.
-        * **Planned Features:** Buzzer for alerts and Easter egg tunes, status/busy LEDs, hardware configuration switches (e.g., for mute or different USB modes) 
-
+This project supports three configurations, but note that the **Single-Board Reader** (RP2040 version) is now the primary, actively maintained design—while the Shield + ATmega2560 setup remains as legacy hardware support.
 
 ---
 
-### Shield
-![Shield](hardware/shield/kicad/shield.png)
-_Shield PCB_
-* **Status:** `Stable`
-* **Description:** A "Shield" PCB designed with the standard Arduino Mega 2560 footprint. It contains the N64 cartridge slot and all necessary interface hardware.
-* **Key Features:**
-    * N64 Cartridge Slot
-    * SD Card and Real-Time Clock (RTC) modules.
-    * Optional connections for N64 Controller.
-* **Issues:**
-    * Requires desoldering the barrel-jack and ICSP headers from the Arduino Mega, which is a pain in the ass.
-* **How to Use:** This Shield can be used in two main ways:
-    1.  **Directly with an Arduino Mega 2560:** The original, stable configuration.
-    2.  **With a Raspberry Pi Pico:** By using the **Shield Adapter for Pico** (see Component 3).
-* **Files:** See `hardware/shield/`
+## Hardware Overview
+
+> **Note:** The image shown below is the ATmega2560-embed version of the Single-Board Reader—our new RP2040 PCB will look different and still needs to be finalized.  
 
 ---
 
-### Shield Adapter for Pico
-![Shield](hardware/adapter/kicad/adapter.png)
-_Adapter PCB_
-* **Status:** `Prototype`
-* **Description:** A bridge accessory, allowing the Raspberry Pi Pico to connect to the **Shield**.
-* **Key Features:**
-    * A socket for a Raspberry Pi Pico.
-    * Exact footprint of an Arduino Mega 2560.
-* **How to Use:** Solder a Pico to this adapter, then plug the adapter into the **Shield**.
+### Single-Board Reader (RP2040)  
+![Future RP2040 SBR PCB](hardware/board/kicad/board.png)  
+**Definitive & Actively Developed**  
+- **Status:** `Prototype (RP2040)`  
+- **Description:** Fully integrated N64 slot + RP2040 microcontroller on one PCB.  
+- **Planned Features:**  
+  - High-speed USB-CDC streaming via TinyUSB  
+  - Status LEDs and buzzer for feedback  
+  - Configuration jumpers for USB modes  
+  
+> ⚠️ **Legacy Note:** The board shown above is the older ATmega2560-embed version. The RP2040 design requires a new PCB layout before it can be used.
+
+---
+
+### Shield (Legacy)  
+![Shield PCB](hardware/shield/kicad/shield.png)  
+**Status:** `Stable (ATmega2560 Legacy)`  
+- **Description:** Arduino‐Mega-form-factor Shield with N64 slot, SD, and RTC.  
+- **Key Features:**  
+  - N64 cartridge interface  
+  - SD card + real-time clock support  
+- **Warning:**  
+  - Requires desoldering headers on the Mega2560 board  
+  - **Not recommended** unless you want to practice desoldering and rework.  
+
+---
+
+### Shield Adapter for Pico (Legacy)  
+![Adapter PCB](hardware/adapter/kicad/adapter.png)  
+**Status:** `Prototype`  
+- **Description:** Adapter board that lets a Raspberry Pi Pico plug into the Shield’s Mega2560 footprint.  
+- **Use Case:** Transitional hardware for Shield users to run the new Pico firmware.  
+
 
 ---
 
 ## Acknowledgements
-* This project is built upon the incredible work of **sanni**, who created and maintains the original [sanni Cart Reader](https://github.com/sanni/cartreader).
+
+This project stands on the shoulders of many open-source contributors and resources in the retro-console community:
+
+- **sanni** – original [cartreader](https://github.com/sanni/cartreader) author  
+- **nopjne** – [drmdmp64_mass](https://github.com/nopjne/drmdmp64_mass/) USB-MSC dumper for N64    
+- **skaman** – multi-console cart-reader modules (SNES, Famicom, Atari, C64, etc.)  
+- **hkz & themanbehindthecurtain** – flashram commands for N64  
+- **Andrew Brown & Peter Den Hartog** – N64 controller protocol  
+- **libdragon** – N64 controller checksums  
+
+**Technical references**  
+- Joybus protocol: https://n64brew.dev/wiki/Joybus_Protocol  
+- N64 hardware deep dive: https://www.copetti.org/writings/consoles/nintendo-64/  
