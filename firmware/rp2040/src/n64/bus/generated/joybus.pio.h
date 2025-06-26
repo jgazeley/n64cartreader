@@ -14,7 +14,6 @@
 
 #define joybus_wrap_target 0
 #define joybus_wrap 20
-#define joybus_pio_version 0
 
 #define joybus_offset_inmode 0u
 #define joybus_offset_outmode 6u
@@ -22,27 +21,27 @@
 
 static const uint16_t joybus_program_instructions[] = {
             //     .wrap_target
-    0xe080, //  0: set    pindirs, 0
+    0xe080, //  0: set    pindirs, 0                 
     0x3f20, //  1: wait   0 pin, 0               [31]
     0xbf42, //  2: nop                           [31]
-    0x4001, //  3: in     pins, 1
-    0x20a0, //  4: wait   1 pin, 0
-    0x0001, //  5: jmp    1
-    0xe001, //  6: set    pins, 1
-    0xe081, //  7: set    pindirs, 1
-    0x80e0, //  8: pull   ifempty block
-    0x6021, //  9: out    x, 1
-    0x6041, // 10: out    y, 1
-    0x0060, // 11: jmp    !y, 0
+    0x4001, //  3: in     pins, 1                    
+    0x20a0, //  4: wait   1 pin, 0                   
+    0x0001, //  5: jmp    1                          
+    0xe001, //  6: set    pins, 1                    
+    0xe081, //  7: set    pindirs, 1                 
+    0x80e0, //  8: pull   ifempty block              
+    0x6021, //  9: out    x, 1                       
+    0x6041, // 10: out    y, 1                       
+    0x0060, // 11: jmp    !y, 0                      
     0xf800, // 12: set    pins, 0                [24]
     0xb801, // 13: mov    pins, x                [24]
     0xb801, // 14: mov    pins, x                [24]
     0xf301, // 15: set    pins, 1                [19]
-    0x0008, // 16: jmp    8
-    0xe081, // 17: set    pindirs, 1
-    0xe501, // 18: set    pins, 1                [5]
-    0xe400, // 19: set    pins, 0                [4]
-    0x0012, // 20: jmp    18
+    0x0008, // 16: jmp    8                          
+    0xe081, // 17: set    pindirs, 1                 
+    0xe501, // 18: set    pins, 1                [5] 
+    0xe400, // 19: set    pins, 0                [4] 
+    0x0012, // 20: jmp    18                         
             //     .wrap
 };
 
@@ -51,10 +50,6 @@ static const struct pio_program joybus_program = {
     .instructions = joybus_program_instructions,
     .length = 21,
     .origin = -1,
-    .pio_version = joybus_pio_version,
-#if PICO_PIO_VERSION > 0
-    .used_gpio_ranges = 0x0
-#endif
 };
 
 static inline pio_sm_config joybus_program_get_default_config(uint offset) {

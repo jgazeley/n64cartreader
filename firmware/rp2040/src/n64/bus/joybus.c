@@ -1,18 +1,7 @@
-
-/**
- * SPX-License-Identifier: BSD-2-Clause 
- * Copyright (c) 2023 - NopJne
- * 
- * N64CartInterface
- * Enables cartridge reading (0x1000'0000)
- * FlashRam/SRAM support     (0x0800'0000)
- * SI EEPROM support
- */
-
 //Command Description   Console Devices  Tx Bytes Rx Bytes
 //0xFF    Reset & info  N64 Cartridge    1        3
-//0x04    Read EEPROM   N64 Cartridge    2        8
-//0x05    Write EEPROM  N64 Cartridge    10       1
+//0x04    Read EEPROM   N64 Cartridge    2	      8
+//0x05    Write EEPROM  N64 Cartridge    10	      1
 
 #include <stdlib.h>
 #include "pico/stdlib.h"
@@ -20,22 +9,23 @@
 #include "hardware/gpio.h"
 #include "hardware/pio.h"
 
-#include "joybus.pio.h"
-#include <bus/joybus.h>
+#include "n64/pins.h"
+#include "n64/bus/joybus.h"
+#include "n64/bus/generated/joybus.pio.h"
 
 uint32_t ReadCount = 0;
 uint32_t gEepromSize = 0;
 
-void n64_joyBus_reset() {
+void n64_joybus_reset() {
     sleep_ms(300);
-    gpio_put(EEP_RST, true);
+    gpio_put(N64_SYSTEM_RESET_PIN, true);
     sleep_ms(100);
 }
 
-void n64_eep_init() {
-    InitEepromClock(EEP_CLK);
-    n64_joyBus_reset();
-    InitEeprom(EEP_DAT);
+bool n64_joybus_init() {
+    InitEepromClock(N64_EEPROM_CLOCK_PIN);
+    n64_joybus_reset();
+    InitEeprom(N64_EEPROM_DATA_PIN);
 }
 
 void __time_critical_func(convertToPio)(const uint8_t* command, const int len, uint32_t* result, int* resultLen) {
@@ -58,8 +48,8 @@ void __time_critical_func(convertToPio)(const uint8_t* command, const int len, u
     result[len / 2] += 3 << (2 * (8 * (len % 2)));
 }
 
-static PIO pio = pio0;
-static PIO pio_1 = pio1;
+PIO pio = pio0;
+PIO pio_1 = pio1;
 void __time_critical_func(InitEepromClock)(uint clockpin)
 {
     gpio_init(clockpin);
@@ -101,8 +91,8 @@ uint32_t GetInputWithTimeout(void)
     return 0xFFFFFFFF;
 }
 
-static pio_sm_config config;
-static uint piooffset;
+pio_sm_config config;
+uint piooffset;
 void __time_critical_func(InitEeprom)(uint dataPin)
 {
     gpio_init(dataPin);
