@@ -1,383 +1,775 @@
 /**
- * @file gamepak.c
- * @brief GamePak (cartridge) interface implementation.
- *
- * Implements functions to initialize the GamePak subsystem and
- * read bytes from the ROM via the AD-bus.
+ * @file     gamepak.c
+ * @brief    Implementation of the GamePak (cartridge) API.
+ * @version  2.0
  */
-#include "pico/stdlib.h"
-#include <stddef.h>
-#include <string.h>
 
-#include "n64/devices/gamepak.h"
-#include "n64/bus/adbus.h"
-#include "n64/bus/joybus.h"
+#include "n64/devices/gamepak.h" // Public API header
+#include "n64/bus/adbus.h"      // Low-level hardware access
+#include "n64/bus/joybus.h"     // For save game access
 
-static n64_gamepak_info_t gamepak_info = {
-    .valid = false,
-    .save_type = N64_SAVE_TYPE_NONE
-};
+#include "pico/stdlib.h"        // For sleep_ms, etc.
+#include "tusb.h"
 
-// single 512-byte save buffer
-static uint8_t save_buf[N64_GAMEPAK_SRAM_PAGE_SIZE];
+#include <string.h>             // For memset, memcpy
+#include <stdio.h>              // for printf() ///## DEBUG ##///
+#include <stdlib.h>
 
-bool gamepak_init(void) {
-    // 1) Init the AD-bus
-    if (!adbus_init()) {
-        gamepak_info.valid = false;
-        return false;
+
+//==============================================================================
+// Private Module-Level State
+//==============================================================================
+
+static n64_gamepak_info_t s_gamepak_info;
+static uint8_t s_save_page_buffer[N64_SAVE_PAGE_BUFFER_SIZE];
+static uint32_t s_golden_header_value = 0; // For hot-swap detection
+ 
+
+//==============================================================================
+// Private Helper Functions
+//==============================================================================
+
+static void gamepak_send_flashram_command(uint32_t cmd);
+
+bool gamepak_read_rom_bytes(uint32_t rom_address, uint8_t* buffer, size_t length);
+static bool flashram_erase_block(uint32_t byte_addr);
+static bool flashram_program_page(uint32_t byte_addr, const uint8_t data[FLASHRAM_PAGE_SIZE]);
+
+/**
+ * @brief  Detects the N64 ROM size by checking for mirrored data.
+ *
+ * This function works by reading a fingerprint from the start of the ROM,
+ * then checking every megabyte from the maximum size downwards. The first
+ * time it finds data that is NOT a mirror of the start, it determines
+ * that is the highest unique block of data, giving the correct size.
+ * This correctly handles non-power-of-two ROM sizes like 12MB.
+ *
+ * @return The detected ROM size in bytes. Returns 0 on failure.
+ */
+static uint32_t _gamepak_detect_rom_size(void)
+{
+    const uint32_t MAX_BYTES = 64 * 1024 * 1024;
+    const uint32_t PROBE_STEP = 1 * 1024 * 1024;   // probe every 1 MiB
+    const uint32_t FINGERPRINT_LEN = 16;
+
+    uint8_t base[FINGERPRINT_LEN];
+    if (!gamepak_read_rom_bytes(N64_ROM_BASE, base, FINGERPRINT_LEN)) {
+        return 0; // Read failure
     }
 
-    // if (!n64_joybus_init()) {
-    //     // gamepak_info.valid = false;
-    //     return false;
-    // }
-    n64_joybus_init();
+    for (uint32_t offs = PROBE_STEP; offs < MAX_BYTES; offs += PROBE_STEP) {
+        uint8_t probe[FINGERPRINT_LEN];
+        if (!gamepak_read_rom_bytes(N64_ROM_BASE + offs, probe, FINGERPRINT_LEN)) {
+            // A bus error here likely means we've read past the physical chip end.
+            // The previous offset was the last valid one, making `offs` the size.
+            return offs;
+        }
 
-    // 2) Reset & settle bus
-    n64_adbus_reset();
-    sleep_ms(5);
-
-    // 3) Read the 64-byte ROM header straight into our struct
-    uint8_t *hdr_dst = (uint8_t *)&gamepak_info.header;
-    n64_adbus_set_direction(false);
-    for (size_t w = 0; w < (N64_GAMEPAK_HEADER_SIZE / 2); ++w) {
-        uint32_t addr = N64_GAMEPAK_ROM_BASE + (w * 2);
-        n64_adbus_set_address(addr);
-        uint16_t word = n64_adbus_read16();
-        hdr_dst[w*2    ] = (uint8_t)(word >> 8);
-        hdr_dst[w*2 + 1] = (uint8_t)(word & 0xFF);
-    }
-    // — no manual null-termination here! use gamepak_get_title() instead.
-
-    // 4) Probe for SRAM and preload first page if present
-    if (gamepak_has_sram()) {
-        gamepak_info.save_type = N64_SAVE_TYPE_SRAM;
-        // read first 512-byte page into save_buf
-        if (!gamepak_read_sram_page(N64_GAMEPAK_SRAM_BASE, save_buf)) {
-            // if it fails, clear the save_type
-            gamepak_info.save_type = N64_SAVE_TYPE_NONE;
+        if (memcmp(base, probe, FINGERPRINT_LEN) == 0) {
+            // We've found a mirror. The real size is the current offset.
+            return offs;
         }
     }
-
-    // 5) Mark everything valid
-    gamepak_info.valid = true;
-    return true;
-}
-
-const n64_gamepak_info_t *gamepak_get_info(void) {
-    return gamepak_info.valid ? &gamepak_info : NULL;
-}
-
-const n64_gamepak_header_t *gamepak_get_header(void) {
-    // Return the header pointer only if the overall info is valid
-    return gamepak_info.valid ? &gamepak_info.header : NULL;
-}
-
-void gamepak_read_header(uint8_t *buffer) {
-
-    // ensure bus initialized & idle
-    // n64_adbus_reset();
-    // make sure bus is in read mode
-    adbus_set_direction(false);
-
-    // read N64_LENGTH_HEADER bytes as 16-bit words
-    for (size_t w = 0; w < (N64_GAMEPAK_HEADER_SIZE / 2); ++w) {
-        uint32_t addr = N64_GAMEPAK_ROM_BASE + (uint32_t)(w * 2);
-        adbus_latch_address(addr);
-
-        // bus returns big-endian 16 bits
-        uint16_t word = adbus_read_word();
-        buffer[w*2 + 0] = (uint8_t)(word >> 8);
-        buffer[w*2 + 1] = (uint8_t)(word & 0xFF);
-    }
-}
-
-bool gamepak_is_valid(void) {
-    return gamepak_info.valid;
-}
-
-uint32_t gamepak_get_crc1(void) {
-    return gamepak_info.header.crc1;
-}
-
-uint32_t gamepak_get_crc2(void) {
-    return gamepak_info.header.crc2;
-}
-
-const char *gamepak_get_title(void) {
-    static char title_str[N64_GAMEPAK_TITLE_LENGTH + 1];
-    size_t len = N64_GAMEPAK_TITLE_LENGTH;
-
-    // Copy exactly 20 bytes from the packed header
-    memcpy(title_str,
-           gamepak_info.header.title,
-           len);
-
-    // Trim any trailing spaces
-    while (len > 0 && title_str[len - 1] == ' ') {
-        --len;
-    }
-
-    // NUL-terminate just after the last non-space character
-    title_str[len] = '\0';
-
-    return title_str;
-}
-
-uint8_t gamepak_get_country_code(void) {
-    return gamepak_info.header.country_code;
-}
-
-uint8_t gamepak_get_version(void) {
-    return gamepak_info.header.version;
-}
-
-bool gamepak_read_bytes(uint32_t base_addr, uint8_t *buf, size_t len) {
-    if (!buf || (len & 1)) return false;   // length must be even
-    for (size_t i = 0; i < len; i += 2) {
-        n64_adbus_set_address(base_addr + i);
-        uint16_t w = n64_adbus_read16();
-        buf[i]   = (uint8_t)(w >> 8);
-        buf[i+1] = (uint8_t)(w & 0xFF);
-    }
-    return true;
-}
-
-bool gamepak_read_bytes_fast(uint32_t base_addr, uint8_t *buf, size_t len) {
-    // if (!buf || (len & 1)) return false;
-    // while (len > 0) {
-    //     // how many bytes to do in this chunk?
-    //     size_t chunk = (len < N64_FAST_CHUNK_BYTES ? len : N64_FAST_CHUNK_BYTES);
-    //     size_t words = chunk / 2;
-
-    //     // 1) latch the start address for this burst
-    //     adBus_set_address(base_addr);
-    //     adBus_dir(false);  // release bus to the cartridge
-
-    //     // 2) read 'words' sequential 16-bit values
-    //     for (size_t i = 0; i < words; ++i) {
-    //         uint16_t w = n64_read16();      // toggles /RD, waits, samples
-    //         buf[2*i]   = (uint8_t)(w >> 8);   // MSB
-    //         buf[2*i+1] = (uint8_t)(w & 0xFF); // LSB
-    //     }
-
-    //     // advance pointers
-    //     base_addr += chunk;
-    //     buf       += chunk;
-    //     len       -= chunk;
-    // }
-    // return true;
+    
+    // If we complete the loop without finding a mirror, it must be a full 64 MiB chip.
+    return MAX_BYTES;
 }
 
 /**
- * @brief Probe for battery-backed SRAM on the cartridge.
- *
- * Uses a float-bus precheck, then a read/write/restore pattern test.
- *
- * @return true if SRAM is detected and writable.
+ * @brief Probes for all known save types (SRAM, EEPROM, etc.) and pre-loads a page.
+ * * This function is called once during gamepak_init(). It sets the save_type
+ * and save_size_bytes fields in the s_gamepak_info struct.
  */
+static void _gamepak_detect_and_load_save_media(void) {
+    // We need to get the size detected by your original InitEeprom function.
+    extern uint32_t gEepromSize;
+
+//    printf("--- Save Detection Log ---\n");
+
+    // Default to no save type
+    s_gamepak_info.save_type = N64_SAVE_TYPE_NONE;
+    s_gamepak_info.save_size_bytes = 0;
+    memset(s_save_page_buffer, 0, N64_SAVE_PAGE_BUFFER_SIZE);
+//    printf("State: Initialized to SAVE_TYPE_NONE.\n");
+
+    // --- Probe for SRAM ---
+//    printf("Probe: Checking for SRAM...\n");
+    if (gamepak_has_sram()) {
+//        printf("Probe Result: SRAM Detected.\n");
+        s_gamepak_info.save_type = N64_SAVE_TYPE_SRAM;
+        s_gamepak_info.save_size_bytes = N64_SRAM_SIZE;
+//        printf("State: Set to SAVE_TYPE_SRAM (%zu bytes).\n", s_gamepak_info.save_size_bytes);
+        gamepak_read_sram_bytes(N64_SRAM_BASE, s_save_page_buffer, N64_SAVE_PAGE_BUFFER_SIZE);
+//        printf("--- Save Detection Finished ---\n");
+        return; // Found it, we're done
+    }
+//    printf("Probe Result: No SRAM found.\n");
+
+
+    // --- Probe for EEPROM ---
+    // We check the global variable that your trusted InitEeprom function sets.
+//    printf("Probe: Checking for EEPROM (gEepromSize = %u)...\n", gEepromSize);
+    if (gEepromSize > 0) {
+//        printf("Probe Result: EEPROM Detected.\n");
+        s_gamepak_info.save_size_bytes = gEepromSize;
+
+        if (s_gamepak_info.save_size_bytes == N64_EEPROM_16K_SIZE) {
+            s_gamepak_info.save_type = N64_SAVE_TYPE_EEPROM_16K;
+        } else {
+            s_gamepak_info.save_type = N64_SAVE_TYPE_EEPROM_4K;
+        }
+        
+//        printf("State: Set to %d (%zu bytes).\n", s_gamepak_info.save_type, s_gamepak_info.save_size_bytes);
+
+        // Attempt to read the first page of the save file.
+        if (gamepak_read_eeprom_bytes(0, s_save_page_buffer, N64_SAVE_PAGE_BUFFER_SIZE)) {
+//            printf("State: Successfully read first 512 bytes into save cache.\n");
+        } else {
+//            printf("State: ERROR reading first 512 bytes from EEPROM.\n");
+        }
+//        printf("--- Save Detection Finished ---\n");
+        return;
+    }
+//    printf("Probe Result: No EEPROM found.\n");
+
+
+    // --- Probe for FlashRAM ---
+//    printf("Probe: Checking for FlashRAM...\n");
+    if (gamepak_has_flashram()) {
+//        printf("Probe Result: FlashRAM Detected.\n");
+        s_gamepak_info.save_type       = N64_SAVE_TYPE_FLASHRAM;
+        s_gamepak_info.save_size_bytes = N64_FLASHRAM_SIZE;
+//        printf("State: Set to SAVE_TYPE_FLASHRAM (%zu bytes).\n", s_gamepak_info.save_size_bytes);
+
+        // Read the first 512-byte “page” into our cache
+        // FIX: The address is an offset, so use 0 to read from the beginning.
+        if (gamepak_read_flashram_bytes(0, s_save_page_buffer, N64_SAVE_PAGE_BUFFER_SIZE)) {
+//            printf("State: Successfully read first 512 bytes into save cache.\n");
+        } else {
+//            printf("State: ERROR reading first 512 bytes from FlashRAM.\n");
+        }
+
+        // printf("--- Save Detection Finished ---\n");
+        return;
+    }
+    // printf("Probe Result: No FlashRAM found.\n");
+    // printf("--- Save Detection Finished ---\n");
+}
+
+static void _gamepak_refresh_save_page_cache(void) {
+    // Check the detected save type and call the appropriate read function.
+    switch (s_gamepak_info.save_type) {
+        case N64_SAVE_TYPE_SRAM:
+            gamepak_read_sram_bytes(N64_SRAM_BASE, s_save_page_buffer, N64_SAVE_PAGE_BUFFER_SIZE);
+            break;
+        
+        case N64_SAVE_TYPE_EEPROM_4K:
+        case N64_SAVE_TYPE_EEPROM_16K:
+            // The address is 0 for EEPROM reads, and we read the first page.
+            gamepak_read_eeprom_bytes(0, s_save_page_buffer, N64_SAVE_PAGE_BUFFER_SIZE);
+            break;
+
+        // Add cases for FlashRAM etc. here in the future
+        
+        default:
+            // No detectable/writable save type, do nothing.
+            break;
+    }
+}
+
+//==============================================================================
+// Initialization and Status
+//==============================================================================
+
+bool gamepak_init(void) {
+    // 1. Reset all our internal state.
+    memset(&s_gamepak_info, 0, sizeof(s_gamepak_info));
+    s_gamepak_info.valid = false;
+
+    // --- STEP 1: ADBUS (ROM) INITIALIZATION ---
+    // Initialize and use the parallel Adbus FIRST, while the bus is quiet.
+    if (!adbus_init()) {
+        return false;
+    }
+
+    // Reset the cartridge bus.
+    adbus_assert_reset(true);
+    sleep_ms(5);
+    adbus_assert_reset(false);
+    sleep_ms(10);
+
+    // Read the full 64-byte header from the ROM.
+    if (!gamepak_read_rom_bytes(N64_ROM_BASE, (uint8_t*)&s_gamepak_info.header, N64_HEADER_SIZE)) {
+        // This fails if there's a hardware read issue.
+        return false;
+    }
+    
+    // After the read, check if the bus was open (no cart).
+    uint32_t first_dword = s_gamepak_info.header.initial_settings;
+    if (first_dword == 0xFFFFFFFF || first_dword == 0x00000000) {
+        return false; // No cartridge is present.
+    }
+
+    // --- NEW: Detect and store ROM Size ---
+    s_gamepak_info.rom_size_bytes = _gamepak_detect_rom_size();
+
+    // --- STEP 2: JOYBUS (SAVE) INITIALIZATION ---
+    // NOW that we have a valid header and all ROM reading is done, it is safe
+    // to initialize the Joybus PIO, which can be electrically noisy.
+    if (!joybus_init()) {
+        // If joybus fails, that's okay. We still have a valid ROM, just no save info.
+        s_gamepak_info.save_type = N64_SAVE_TYPE_NONE;
+    } else {
+        // Joybus is up, now we can safely probe for save media.
+        _gamepak_detect_and_load_save_media();
+    }
+
+    // --- STEP 3: FINALIZE ---
+    // We have a valid ROM header, so mark the GamePak info as valid.
+    s_gamepak_info.valid = true;
+    return true;
+}
+
+bool gamepak_is_present(void) {
+    if (s_golden_header_value == 0) return false;
+    
+    uint16_t word1 = gamepak_read_rom_word(N64_ROM_BASE);
+    uint16_t word2 = gamepak_read_rom_word(N64_ROM_BASE + 2);
+    uint32_t current_header_value = ((uint32_t)word1 << 16) | word2;
+
+    return (current_header_value == s_golden_header_value);
+}
+
+const n64_gamepak_info_t* gamepak_get_info(void) {
+    return s_gamepak_info.valid ? &s_gamepak_info : NULL;
+}
+
+
+//==============================================================================
+// Cartridge Information Accessors
+//==============================================================================
+
+const n64_gamepak_header_t* gamepak_get_header(void) {
+    return s_gamepak_info.valid ? &s_gamepak_info.header : NULL;
+}
+
+const uint8_t* gamepak_get_save_page_buffer(void) {
+    // Only return a valid pointer if the driver has been successfully initialized.
+    if (!s_gamepak_info.valid) {
+        return NULL;
+    }
+    // Return a pointer to our private, static buffer.
+    return s_save_page_buffer;
+}
+
+void gamepak_get_rom_title(char* buffer, size_t buffer_len) {
+    if (!s_gamepak_info.valid || !buffer || buffer_len == 0) {
+        if (buffer && buffer_len > 0) buffer[0] = '\0';
+        return;
+    }
+
+    // Formatting logic for title.
+    const size_t title_len = sizeof(s_gamepak_info.header.title);
+    
+    // Copy a safe amount of the title
+    size_t len_to_copy = title_len;
+    if (len_to_copy > buffer_len - 1) {
+        len_to_copy = buffer_len - 1;
+    }
+    memcpy(buffer, s_gamepak_info.header.title, len_to_copy);
+    
+    // Trim trailing spaces from the copied string
+    while (len_to_copy > 0 && buffer[len_to_copy - 1] == ' ') {
+        --len_to_copy;
+    }
+    buffer[len_to_copy] = '\0'; // Null-terminate
+}
+
+n64_save_type_t gamepak_get_save_type(void) {
+    return s_gamepak_info.save_type;
+}
+
+size_t gamepak_get_save_size(void) {
+    return s_gamepak_info.save_size_bytes;
+}
+
+// returns CRC1 (unchanged)
+uint32_t gamepak_get_rom_crc1(void) {
+    return s_gamepak_info.valid ? s_gamepak_info.header.crc1 : 0;
+}
+
+// returns CRC2 (unchanged)
+uint32_t gamepak_get_rom_crc2(void) {
+    return s_gamepak_info.valid ? s_gamepak_info.header.crc2 : 0;
+}
+
+// returns a pointer to the 4-byte game ID (e.g. "CZGE", "NGEE")
+// caller must not modify or free this pointer
+char *gamepak_get_game_id(void) {
+    return s_gamepak_info.valid
+         ? s_gamepak_info.header.game_id
+         : "";
+}
+
+// returns the 1-byte ROM version (at offset 0x3F)
+uint8_t gamepak_get_rom_version(void) {
+    return s_gamepak_info.valid
+         ? s_gamepak_info.header.version
+         : 0;
+}
+
+//==============================================================================
+// ROM Access Functions
+//==============================================================================
+
+uint16_t gamepak_read_rom_word(uint32_t rom_address) {
+    adbus_latch_address(rom_address);
+    return adbus_read_word();
+}
+
+// bool gamepak_read_rom_bytes(uint32_t rom_address, uint8_t* buffer, size_t length) {
+//     if (!buffer || (length % 2) != 0) return false;
+
+//     for (size_t i = 0; i < length; i += 2) {
+//         uint16_t word = gamepak_read_rom_word(rom_address + i);
+//         buffer[i]     = (uint8_t)(word >> 8);
+//         buffer[i + 1] = (uint8_t)(word & 0xFF);
+//     }
+//     return true;
+// }
+
+bool gamepak_read_rom_bytes(uint32_t rom_address, uint8_t* buffer, size_t length) {
+    if (!buffer || (length % 2) != 0) return false;
+
+    // Latch the starting address ONCE before the loop.
+    adbus_latch_address(rom_address);
+
+    // Read consecutive words. The cartridge automatically increments its internal address pointer
+    // with each read, so we don't need to re-latch the address.
+    for (size_t i = 0; i < length; i += 2) {
+        uint16_t word = adbus_read_word();
+        buffer[i]     = (uint8_t)(word >> 8);
+        buffer[i + 1] = (uint8_t)(word & 0xFF);
+    }
+    
+    return true;
+}
+
+
+//==============================================================================
+// SRAM Access Functions
+//==============================================================================
+
 bool gamepak_has_sram(void) {
-    const uint32_t base = N64_GAMEPAK_SRAM_BASE;
-    const uint32_t test_addr = base + 0x100;  // word-aligned safe offset
+    const uint32_t base = N64_SRAM_BASE;
+    const uint32_t test_addr = base + 0x100;
     const uint16_t magic = 0x5A5A;
 
-    // 1) Float-bus check (no device = 0xFFFF)
-    uint16_t first = gamepak_read_sram_word(base);
-    if (first == 0xFFFF) {
+    if (gamepak_read_sram_word(base) == 0xFFFF) {
         return false;
     }
 
-    // 2) Read the original word at test_addr
     uint16_t orig = gamepak_read_sram_word(test_addr);
-
-    // 3) Write our magic pattern
-    if (!gamepak_write_sram_word(test_addr, magic)) {
-        return false;
-    }
-
-    // 4) Read it back
+    gamepak_write_sram_word(test_addr, magic);
     uint16_t readback = gamepak_read_sram_word(test_addr);
-
-    // // 5) Restore the original
     gamepak_write_sram_word(test_addr, orig);
 
-    // // 6) If we saw our pattern, SRAM is present
     return (readback == magic);
 }
 
-
-// #include <string.h> // For strlen
-
-// bool gamepak_has_sram(void) {
-//     const uint32_t base = N64_GAMEPAK_SRAM_BASE;
-//     // We'll write starting at base + 0x100 to avoid critical areas near the beginning
-//     const uint32_t write_start_addr = base + 0x100;
-//     const char* test_string = "The quick brown fox jumps over the lazy dog."; // Your desired string
-
-//     // 1) Float-bus check (no device = 0xFFFF)
-//     uint16_t first = gamepak_read_sram_word(base);
-//     if (first == 0xFFFF) {
-//         return false;
-//     }
-
-//     // 2) (Original step 2 is no longer directly applicable as we are overwriting a block,
-//     //    but we will still perform the write/read test to confirm SRAM presence).
-
-//     // 3) Write our ASCII string to SRAM
-//     // We need to write word by word (16 bits)
-//     bool write_success = true;
-//     for (int i = 0; i < strlen(test_string); i += 2) {
-//         uint16_t word_to_write = 0;
-
-//         // Pack two characters into one 16-bit word
-//         // Assuming Big-Endian for N64, so first char is MSB, second is LSB
-//         word_to_write |= (uint16_t)test_string[i] << 8;
-//         if (i + 1 < strlen(test_string)) {
-//             word_to_write |= (uint16_t)test_string[i+1];
-//         } else {
-//             // Pad with null if odd number of characters
-//             word_to_write |= 0x00;
-//         }
-
-//         uint32_t current_addr = write_start_addr + (i / 2) * 2; // Each word is 2 bytes
-
-//         if (!gamepak_write_sram_word(current_addr, word_to_write)) {
-//             write_success = false;
-//             break; // Exit on first write failure
-//         }
-//     }
-
-//     if (!write_success) {
-//         return false;
-//     }
-
-//     // 4) Read it back to verify
-//     bool read_match = true;
-//     for (int i = 0; i < strlen(test_string); i += 2) {
-//         uint32_t current_addr = write_start_addr + (i / 2) * 2;
-//         uint16_t readback_word = gamepak_read_sram_word(current_addr);
-
-//         uint8_t char1 = (readback_word >> 8) & 0xFF; // MSB
-//         uint8_t char2 = readback_word & 0xFF;        // LSB
-
-//         if (char1 != test_string[i]) {
-//             read_match = false;
-//             break;
-//         }
-//         if (i + 1 < strlen(test_string) && char2 != test_string[i+1]) {
-//             read_match = false;
-//             break;
-//         } else if (i + 1 >= strlen(test_string) && char2 != 0x00) {
-//             // If it was the last char and it was odd, check padding
-//             read_match = false;
-//             break;
-//         }
-//     }
-
-//     // 5) Restore the original - YOU EXPLICITLY WANT THIS COMMENTED OUT
-//     //    gamepak_write_sram_word(test_addr, orig);
-
-//     // 6) If we saw our pattern, SRAM is present
-//     return read_match;
-// }
-
-
-
-/**
- * @brief Read a single 16-bit word from SRAM.
- *
- * @param addr SRAM address to read (word-aligned).
- * @return 16-bit SRAM data, or 0 if unavailable.
- */
-uint16_t gamepak_read_sram_word(uint32_t addr) {
-    // // 1) Drive address onto AD[0..15] and strobe ALE_H/ALE_L
-    n64_adbus_set_address(addr);
-    // // 2) Assert RD, sample data bus, release RD
-    return n64_adbus_read16();
+uint16_t gamepak_read_sram_word(uint32_t sram_address) {
+    adbus_latch_address(sram_address);
+    return adbus_read_word();
 }
 
+bool gamepak_write_sram_word(uint32_t sram_address, uint16_t value) {
+    adbus_set_direction(true);
+    adbus_latch_address(sram_address);
+    adbus_write_word(value);
+    adbus_set_direction(false);
+    return true;
+}
 
-/**
- * @brief Read a 512-byte SRAM page into `buf`.
- * @param page_addr  Starting address of the page (must be word-aligned)
- * @param buf        Pointer to at least 512 bytes of storage
- * @return true on success
- */
-bool gamepak_read_sram_page(uint32_t page_addr, uint8_t *buf) {
-    if (!buf) return false;
+bool gamepak_read_sram_bytes(uint32_t sram_address, uint8_t* buffer, size_t length) {
+    if (!buffer || (length % 2) != 0) return false;
 
-    // SRAM is word-addressed, so we read 256 words = 512 bytes
-    for (size_t w = 0; w < (N64_GAMEPAK_SRAM_PAGE_SIZE / 2); ++w) {
-        uint32_t addr = page_addr + (uint32_t)(w * 2);
-        uint16_t word = gamepak_read_sram_word(addr);
-        buf[w*2    ] = (uint8_t)(word >> 8);
-        buf[w*2 + 1] = (uint8_t)(word & 0xFF);
+    for (size_t i = 0; i < length; i += 2) {
+        uint16_t word = gamepak_read_sram_word(sram_address + i);
+        buffer[i]     = (uint8_t)(word >> 8);
+        buffer[i + 1] = (uint8_t)(word & 0xFF);
     }
     return true;
 }
 
+bool gamepak_write_sram_bytes(uint32_t sram_address, const uint8_t* buffer, size_t length) {
+    if (!buffer || (length % 2) != 0) return false;
 
-/**
- * @brief Write a single 16-bit word into GamePak SRAM.
- *
- * @param addr Word-aligned SRAM address.
- * @param data 16-bit value to write.
- * @return true on (likely) success.
- */
-bool gamepak_write_sram_word(uint32_t addr, uint16_t data) {
-    // 1) Drive bus to output
-    n64_adbus_set_direction(true);
+    for (size_t i = 0; i < length; i += 2) {
+        uint16_t word = ((uint16_t)buffer[i] << 8) | buffer[i + 1];
+        if (!gamepak_write_sram_word(sram_address + i, word)) {
+            return false;
+        }
+    }
 
-    // 2) Latch the address
-    n64_adbus_set_address(addr);
+    _gamepak_refresh_save_page_cache();
 
-    // 3) Write the word
-    n64_adbus_write16(data);
-
-    // 4) Return bus to read mode
-    n64_adbus_set_direction(false);
-
-    // TODO: If your hardware can detect write-ACK or /OE,
-    //       you could verify here. For now assume it works.
     return true;
 }
 
+
+//==============================================================================
+// EEPROM Access Functions
+//==============================================================================
+
+bool gamepak_read_eeprom_bytes(uint32_t address, uint8_t* buffer, size_t length) {
+    if (!buffer || joybus_get_eeprom_size() == 0) return false;
+    
+    // This higher-level function abstracts the 8-byte block nature of EEPROM reads.
+    size_t eeprom_size = joybus_get_eeprom_size();
+    if ((address + length) > eeprom_size) return false; // Out of bounds
+
+    uint8_t block_buffer[8];
+    size_t current_pos = 0;
+
+    while (current_pos < length) {
+        uint32_t current_addr = address + current_pos;
+        uint8_t block_index = current_addr / 8;
+        uint8_t start_offset_in_block = current_addr % 8;
+
+        if (!joybus_read_eeprom_block(block_index, block_buffer)) {
+            return false;
+        }
+
+        size_t bytes_to_copy = 8 - start_offset_in_block;
+        if (bytes_to_copy > (length - current_pos)) {
+            bytes_to_copy = length - current_pos;
+        }
+
+        memcpy(buffer + current_pos, block_buffer + start_offset_in_block, bytes_to_copy);
+        current_pos += bytes_to_copy;
+    }
+    return true;
+}
+
+bool gamepak_write_and_verify_eeprom_bytes(uint32_t address,
+                                           const uint8_t* buffer,
+                                           size_t length)
+{
+    if (!buffer || length == 0) return false;
+
+    size_t eeprom_size = joybus_get_eeprom_size();
+    if ((address + length) > eeprom_size) return false;      // out of range
+
+    const uint8_t  *src      = buffer;
+    uint32_t        addr_cur = address;
+    bool            touched_first_512 = (address < N64_SAVE_PAGE_BUFFER_SIZE);
+
+    while (length)
+    {
+        uint8_t  block_idx      = addr_cur / 8;
+        uint8_t  offset_in_block = addr_cur & 0x7;
+        size_t   bytes_this     = 8 - offset_in_block;
+        if (bytes_this > length) bytes_this = length;
+
+        /* 1. Read existing 8-byte block */
+        uint8_t shadow[8];
+        if (!joybus_read_eeprom_block(block_idx, shadow)) return false;
+
+        /* 2. Merge caller’s data into shadow copy */
+        memcpy(&shadow[offset_in_block], src, bytes_this);
+
+        /* 3. Write + verify with up-to-3 retries */
+        bool ok = false;
+        for (int retry = 0; retry < 3 && !ok; ++retry)
+        {
+            if (!joybus_write_eeprom_block(block_idx, shadow)) continue;
+
+            uint8_t verify[8];
+            if (!joybus_read_eeprom_block(block_idx, verify)) continue;
+            ok = (memcmp(shadow, verify, 8) == 0);
+        }
+        if (!ok) return false;          // give up on persistent failure
+
+        /* 4. Advance */
+        src      += bytes_this;
+        addr_cur += bytes_this;
+        length   -= bytes_this;
+    }
+
+    /* 5. Keep the 512-byte cache coherent */
+    if (touched_first_512)
+        _gamepak_refresh_save_page_cache();
+
+    return true;
+}
+
+
+
+//==============================================================================
+// FlashRAM Access Functions (Stubs for Future Expansion)
+//==============================================================================
+
 /**
- * @brief Dump the entire SRAM contents to stdout.
- *
- * @return true on success, false otherwise.
+ * @brief  Send a 32-bit command to the FlashRAM command register.
+ * Splits into two 16-bit words (high first), latches address, writes, then resets bus direction.
  */
-#define N64_FAST_CHUNK_BYTES 1024u    // 1 KiB burst
-#define N64_FAST_CHUNK_WORDS (N64_FAST_CHUNK_BYTES/2)
+static void gamepak_send_flashram_command(uint32_t cmd) {
+    uint16_t low  = (uint16_t)(cmd & 0xFFFFu);
+    uint16_t high = (uint16_t)(cmd >> 16);
 
-#define SRAM_SIZE_BYTES   (32 * 1024u)
-#define SRAM_CHUNK_SIZE   256u   // bytes per chunk
-static uint8_t sram_chunk_buffer[SRAM_CHUNK_SIZE];
-bool gamepak_dump_sram(void) {
-    // printf("Starting SRAM dump (HEX ONLY)...\n");
-    // size_t bytes_on_line = 0;
+    // Drive bus for write
+    adbus_set_direction(true);
+    // Select command register
+    adbus_latch_address(FLASHRAM_CMD_REG);
+    // Send high half, then low half
+    adbus_write_word(high);
+    adbus_write_word(low);
+    // Release bus for read
+    adbus_set_direction(false);
+}
 
-    // for (uint32_t chunk_off = 0; chunk_off < SRAM_SIZE_BYTES; chunk_off += SRAM_CHUNK_SIZE) {
-    //     // Read one 256-byte chunk (128 words)
-    //     for (uint32_t word_off = 0; word_off < SRAM_CHUNK_SIZE; word_off += 2) {
-    //         uint32_t addr = N64_ADDRESS_SRAM + chunk_off + word_off;
-    //         uint16_t w   = sram_read_word(addr);
-    //         // store big-endian
-    //         sram_chunk_buffer[word_off    ] = (uint8_t)(w >> 8);
-    //         sram_chunk_buffer[word_off + 1] = (uint8_t)(w & 0xFF);
-    //     }
-    //     // Print chunk as hex, 16 bytes per line
-    //     for (uint32_t i = 0; i < SRAM_CHUNK_SIZE; ++i) {
-    //         printf("%02X", sram_chunk_buffer[i]);
-    //         if (++bytes_on_line >= 16) {
-    //             // printf("\n");
-    //             bytes_on_line = 0;
-    //         }
-    //     }
-    // }
-    // if (bytes_on_line) {
-    //     printf("\n");
-    // }
-    // printf("\nSRAM dump complete.\n");
+/**
+ * @brief  NEW: Polls the FlashRAM status register until it is ready.
+ * @note   This is ESSENTIAL. Operations will fail without waiting for the chip.
+ *
+ * @return true if the chip became ready, false on timeout.
+ */
+const uint8_t FLASHRAM_IDLE_STATUS[8] = { 0x11, 0x11, 0x80, 0x01, 0x00, 0xC2, 0x00, 0x1E };
+static bool gamepak_flashram_wait_ready(void) {
+    // A buffer to hold the 8-byte status read from the chip
+    uint8_t current_status[8];
+
+    // Set a generous timeout to avoid infinite loops
+    for (int i = 0; i < 500; i++) {
+        // 1. Tell the chip to enter status register mode.
+        gamepak_send_flashram_command(FLASHRAM_SET_STATUS_MODE_CMD);
+
+        // 2. Latch the base address to read the status register itself.
+        adbus_latch_address(N64_SRAM_BASE);
+
+        // 3. Read the full 8-byte status block.
+        for (int j = 0; j < 8; j += 2) {
+            uint16_t word = adbus_read_word();
+            current_status[j]     = (uint8_t)(word >> 8);
+            current_status[j + 1] = (uint8_t)(word & 0xFF);
+        }
+
+        // 4. Compare the entire block to the known "idle" state.
+        if (!memcmp(current_status, FLASH_IDLE_MX1100, 8) ||
+            !memcmp(current_status, FLASH_IDLE_MX1101, 8) ||
+            !memcmp(current_status, FLASH_IDLE_MN63F81, 8))
+            return true;
+
+        // 5. CRITICAL: Wait before trying again.
+        sleep_ms(1);
+    }
+
+    return false; // Timeout occurred
+}
+
+bool gamepak_has_flashram(void) {
+    // printf("\n--- Running FlashRAM Detection ---\n");
+
+    // 1. Reset the chip to a known state.
+    // printf("Step 1: Sending RESET command...\n");
+    gamepak_send_flashram_command(FLASHRAM_RESET_CMD);
+    if (!gamepak_flashram_wait_ready()) {
+        // printf("DEBUG RESULT: FAILED. Wait after initial RESET timed out.\n");
+        return false;
+    }
+    // printf("Step 1: OK.\n");
+
+    // 2. Send the command to enter status register mode.
+    // printf("Step 2: Sending SET STATUS MODE command (0xE1000000)...\n");
+    gamepak_send_flashram_command(FLASHRAM_SET_STATUS_MODE_CMD);
+
+    // 3. Latch the base address to read the ID values.
+    // printf("Step 3: Latching base address (0x%08lX)...\n", N64_SRAM_BASE);
+    adbus_latch_address(N64_SRAM_BASE);
+
+    // 4. Read the full 8-byte status/ID block from the chip.
+    // printf("Step 4: Reading 8-byte status/ID block...\n");
+    uint8_t id_block[8];
+    for (int i = 0; i < 8; i += 2) {
+        uint16_t word = adbus_read_word();
+        id_block[i]     = (uint8_t)(word >> 8);
+        id_block[i + 1] = (uint8_t)(word & 0xFF);
+    }
+
+    // THIS IS THE MOST IMPORTANT PART: Print what we received.
+    // printf("DEBUG RESULT: Received Block: %02X %02X %02X %02X %02X %02X %02X %02X\n",
+    //     id_block[0], id_block[1], id_block[2], id_block[3],
+    //     id_block[4], id_block[5], id_block[6], id_block[7]);
+
+    // 5. Send a final reset to leave the chip in a clean state.
+    gamepak_send_flashram_command(FLASHRAM_RESET_CMD);
+
+    // 6. Check the manufacturer and device ID against known values.
+    // The device ID is the last byte of the block.
+    uint8_t device_id = id_block[7];
+    // printf("Step 6: Checking Device ID 0x%02X against known types...\n", device_id);
+
+    switch (device_id) {
+        case 0x1E: // Macronix MX29L1100
+        case 0x1D: // Macronix MX29L1101
+        case 0xF1: // Panasonic MN63F81MPN
+            // printf("DEBUG RESULT: SUCCESS! Known FlashRAM ID found.\n");
+            return true;
+        default:
+            // printf("DEBUG RESULT: FAILED. Device ID is not recognized.\n");
+            return false;
+    }
+}
+bool gamepak_read_flashram_bytes(uint32_t address, uint8_t* buffer, size_t length) {
+    if (!buffer || (length % 2) != 0) {
+        return false;
+    }
+
+    // --- SETUP: Put the chip into Read Array Mode just once ---
+    gamepak_send_flashram_command(FLASHRAM_RESET_CMD);
+    if (!gamepak_flashram_wait_ready()) {
+        return false;
+    }
+    gamepak_send_flashram_command(FLASHRAM_READ_ARRAY_CMD);
+
+    // --- READ LOOP: Process the data in chunks ---
+    size_t bytes_read = 0;
+    while (bytes_read < length) {
+        size_t chunk_size = 128;
+        if (bytes_read + chunk_size > length) {
+            chunk_size = length - bytes_read;
+        }
+
+        // THE FIX: Translate the byte address to the chip's word address.
+        // This is the specific quirk for the Macronix (0x1E) FlashRAM.
+        uint32_t physical_address = (address + bytes_read) >> 1;
+
+        // Latch the translated address for the CURRENT chunk.
+        adbus_latch_address(N64_SRAM_BASE + physical_address);
+
+        // Perform a fast, contiguous read of this single chunk.
+        for (size_t i = 0; i < chunk_size; i += 2) {
+            uint16_t word = adbus_read_word();
+            buffer[bytes_read + i]     = (uint8_t)(word >> 8);
+            buffer[bytes_read + i + 1] = (uint8_t)(word & 0xFFu);
+        }
+
+        bytes_read += chunk_size;
+    }
+
+    // --- CLEANUP ---
+    gamepak_send_flashram_command(FLASHRAM_RESET_CMD);
+
+    return true;
+}
+
+/* --------------------------------------------------------------------
+   FlashRAM arbitrary-byte writer (read-modify-rewrite of 128-KB block)
+   ------------------------------------------------------------------ */
+bool gamepak_write_flashram_bytes(uint32_t addr,
+                                         const uint8_t *src,
+                                         size_t len)
+{
+    if (!src || !len) return false;
+    if ((addr + len) > N64_FLASHRAM_SIZE) return false;
+
+    /* 1. identify 128-KB block that covers [addr, addr+len) */
+    uint32_t block_base = addr & ~(FLASHRAM_BLOCK_SIZE - 1);
+
+    /* 2. allocate scratch (once) */
+    static uint8_t *blk = NULL;
+    if (!blk) blk = malloc(FLASHRAM_BLOCK_SIZE);
+    if (!blk) return false;
+
+    /* 3. read existing block */
+    if (!gamepak_read_flashram_bytes(block_base, blk, FLASHRAM_BLOCK_SIZE))
+        return false;
+
+    /* 4. splice caller’s buffer */
+    memcpy(blk + (addr - block_base), src, len);
+
+    /* 5. erase + program whole block */
+    if (!flashram_erase_block(block_base)) return false;
+    for (uint32_t off = 0; off < FLASHRAM_BLOCK_SIZE; off += FLASHRAM_PAGE_SIZE)
+        if (!flashram_program_page(block_base + off, blk + off))
+            return false;
+
+    /* 6. refresh first-512-B cache if touched */
+    if (block_base == 0)
+        _gamepak_refresh_save_page_cache();
+
+    return true;
+}
+
+
+bool gamepak_write_flashram_sector(uint32_t address, const uint8_t *buffer)
+{
+    if (!buffer || (address % FLASHRAM_BLOCK_SIZE) != 0)
+        return false;                               /* must be 128-KB aligned */
+
+    if (!flashram_erase_block(address))             /* 1. erase */
+        return false;
+
+    for (uint32_t off = 0; off < FLASHRAM_BLOCK_SIZE; off += FLASHRAM_PAGE_SIZE)
+        if (!flashram_program_page(address + off, buffer + off))
+            return false;                           /* 2. program + verify */
+
+    if (address == 0)                               /* 3. refresh cache */
+        _gamepak_refresh_save_page_cache();
+
+    return true;
+}
+
+/* Erase the 128-KB block that contains <byte_addr> */
+static bool flashram_erase_block(uint32_t byte_addr)
+{
+    uint32_t phys = byte_addr >> 1;                 /* byte → word address */
+
+    tud_task();                                     /* service USB once   */
+    gamepak_send_flashram_command(FLASHRAM_ERASE_CMD | phys);
+    gamepak_send_flashram_command(FLASHRAM_ERASE_MODE_CMD);  /* 0x7800…   */
+    gamepak_send_flashram_command(FLASHRAM_EXECUTE_CMD);
+
+    /* wait-ready loop already calls tud_task() internally */
+    return gamepak_flashram_wait_ready();
+}
+
+/* Program one 128-B page (address must be page-aligned) */
+static bool flashram_program_page(uint32_t byte_addr,
+                                  const uint8_t data[FLASHRAM_PAGE_SIZE])
+{
+    /* Page index within the current 128-KB block (0–1023) */
+    uint16_t page_idx = ((byte_addr >> 7) & 0x03FF);   /* 128-B pages */
+
+    /* 1. Enter PROGRAM mode (no address bits) ---------------------------- */
+    tud_task();                                       /* USB heartbeat   */
+    gamepak_send_flashram_command(FLASHRAM_PROGRAM_CMD);
+    sleep_us(20);                                     /* 20 µs guard     */
+
+    /* 2. Burst 128 B to base address 0x0800_0000 ------------------------- */
+    adbus_set_direction(true);
+    adbus_latch_address(N64_SRAM_BASE);
+    for (int i = 0; i < FLASHRAM_PAGE_SIZE; i += 2) {
+        uint16_t w = ((uint16_t)data[i] << 8) | data[i+1];
+        adbus_write_word(w);
+    }
+    adbus_set_direction(false);
+
+    /* 3. Select page via A5xxxxxxxx register ----------------------------- */
+    gamepak_send_flashram_command(FLASHRAM_PROGRAM_OFFSET_CMD | page_idx);
+    sleep_us(20);                                     /* 20 µs guard     */
+
+    /* 4. Execute and poll until chip is ready ---------------------------- */
+    gamepak_send_flashram_command(FLASHRAM_EXECUTE_CMD);
+
+    while (!gamepak_flashram_wait_ready()) {
+        tud_task();                                   /* keep USB alive  */
+    }
+
+    /* 5. Verify ---------------------------------------------------------- */
+    uint8_t verify[FLASHRAM_PAGE_SIZE];
+    if (!gamepak_read_flashram_bytes(byte_addr, verify, FLASHRAM_PAGE_SIZE))
+        return false;
+
+    return memcmp(data, verify, FLASHRAM_PAGE_SIZE) == 0;
 }

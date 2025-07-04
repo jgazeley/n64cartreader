@@ -21,6 +21,8 @@
 #include <stdbool.h>
 #include "n64/pins.h"
 
+void adbus_set_direction(bool output);
+
 /**
  * @brief Initialize the AD-bus GPIOs and control lines.
  *

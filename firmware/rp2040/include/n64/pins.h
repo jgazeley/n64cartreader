@@ -22,7 +22,7 @@
 #define N64_ADBUS_ALE_L_PIN     20  // Address latch enable low
 
 // --- Peripheral Bus Pins ---
-#define N64_CONTROLLER_DATA_PIN 21  // Data line for controllers (JoyBus)
+#define N64_JOYBUS_DATA_PIN		21  // Data line for controllers (JoyBus)
 #define N64_EEPROM_DATA_PIN     21  // Data line for cartridge EEPROM (can be shared)
 #define N64_EEPROM_CLOCK_PIN    22  // Clock line for cartridge EEPROM
 

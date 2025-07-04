@@ -1,97 +1,278 @@
-// File: src/cli/menu.c
+// File: src/cli/menu.c (Optimized & Commented)
+
 #include "cli/menu.h"
 #include "cli/command.h"
 #include "cli/core.h"
+
 #include <stdio.h>
 #include <stdint.h>
+#include <stdbool.h>
 
-#define MAX_MENU_DEPTH 5
-#define MAGIC_KEY  0xA5
+#define MAX_MENU_DEPTH 5  // Maximum levels of nested submenus
 
-static const menu_frame_t *stack[MAX_MENU_DEPTH];
-static int                 sp = -1;
+// A single entry on the menu navigation stack
+typedef struct {
+    const menu_frame_t *frame;
+} menu_stack_entry_t;
 
-// Debug submenu
-static const menu_item_t debug_items[] = {
-    { 'F', "Fill Buffer",   "fillbuf",    NULL },
-    { 'D', "Dump Buffer",   "dumpbuf",    NULL },
-    { 'W', "Write Message", "writemsg",   NULL },
-    // { 'T', "Stream Test",   "streamtest", NULL },
-    { 'I', "Get GamePak Info",   "n64_info", NULL },
-    { 'N', "View N64 ROM Header",   "n64_header", NULL },
-    { 'B', "Back",          NULL,         NULL },
-};
-const menu_frame_t debug_menu_frame = {
-    .title = "Debug Tests",
-    .items = debug_items,
-    .count = sizeof debug_items / sizeof *debug_items
-};
+// The menu stack and its stack pointer (s_sp == -1 means “empty”)
+static menu_stack_entry_t s_stack[MAX_MENU_DEPTH];
+static int                s_sp = -1;
 
-// Root menu (add 0xA5 entry to invoke "streambuf")
-static const menu_item_t root_items[] = {
-    { 'D', "Debug Tests",     NULL,               &debug_menu_frame },
-    { 'H', "Help",            "help",             NULL              },
-    { 'X', "Exit",            "exit",             NULL              },
-};
-const menu_frame_t root_menu_frame = {
-    .title = "Main Menu",
-    .items = root_items,
-    .count = sizeof root_items / sizeof *root_items
-};
-
-void menu_init(const menu_frame_t *frame) {
-    sp = 0;
-    stack[0] = frame;
-    menu_render();
+/**
+ * menu_init()
+ *  - Initialize the stack with the root menu frame.
+ *  - Sets s_sp = 0 so menu_render()/menu_input() operate on root.
+ */
+void menu_init(const menu_frame_t *root_frame) {
+    s_sp = 0;
+    s_stack[0].frame = root_frame;
 }
-void menu_init_root(void)   { menu_init(&root_menu_frame); }
-void menu_init_debug(void) { menu_init(&debug_menu_frame); }
 
+/**
+ * menu_render()
+ *  - Bail out if stack is empty.
+ *  - Print the current frame’s title and each menu item:
+ *      • Printable ASCII keys are shown as “ X) Description”
+ *      • Non-printable keys are shown in hex “0x##) Description”
+ *  - Prompt “Select:” and flush stdout so the user sees it immediately.
+ */
 void menu_render(void) {
-    if (sp < 0) return;
-    const menu_frame_t *f = stack[sp];
+    if (s_sp < 0) return;                       // Nothing to render
 
-    printf("\n=== %s ===\n", f->title);
+    const menu_frame_t *f = s_stack[s_sp].frame;
+    printf("\n=== %s ===\n", f->title);         // Menu title
+
+    // List each item
     for (size_t i = 0; i < f->count; i++) {
         char key = f->items[i].key;
-        if (key >= 32 && key <= 126) {
+        if (key >= ' ' && key <= '~') {
             printf(" %c) %s\n", key, f->items[i].desc);
         } else {
             printf("0x%02X) %s\n", (uint8_t)key, f->items[i].desc);
         }
     }
-    printf("\nSelect: ");
-    fflush(stdout);
+
+    fputs("\nSelect: ", stdout);                // Prompt
+    fflush(stdout);                             // Ensure prompt is shown
 }
 
+/**
+ * menu_input()
+ *  - Returns true if the character `ch` matched and was handled.
+ *  - Early-exits if no menu is active or CLI is disabled.
+ *  - Iterates the current frame’s items:
+ *      • On matching key:
+ *          - If cmd_name present: run it via cli_command_run()
+ *          - Else if submenu present: push it onto s_stack (up to MAX_MENU_DEPTH)
+ *          - Else if stack depth > 0: pop back to parent menu
+ *      • Sets need_render = true if any of the above happened.
+ *  - After loop, if need_render is still true: re-render menu.
+ */
 bool menu_input(char ch) {
-    // --- 0) Intercept the magic key before the normal menu lookup ---
-    if ((uint8_t)ch == MAGIC_KEY) {
-        // directly invoke your raw‐stream command
-        cli_command_run("streambuf", NULL);
-        menu_render();   // re-draw the menu so CLI UX isn’t broken
-        return true;
-    }
+    if (s_sp < 0)                 return false;   // No active menu
+    // if (!cli_core_is_enabled())   return false;   // CLI disabled
 
-    // --- 1) Now do the normal menu dispatch (only real items) ---
-    const menu_frame_t *f = stack[sp];
+    const menu_frame_t *f = s_stack[s_sp].frame;
+    bool                need_render = false;
+
+    // Find matching key in current menu items
     for (size_t i = 0; i < f->count; i++) {
         const menu_item_t *it = &f->items[i];
-        if ((uint8_t)it->key != (uint8_t)ch) continue;
+        if (it->key != ch) continue;
 
-    if (it->cmd_name) {
-        cli_command_run(it->cmd_name, NULL);
-        // if the CLI was just disabled by that command, don’t redraw
-        if (!cli_core_is_enabled()) {
-            return true;
+        need_render = true;
+
+        if (it->cmd_name) {
+            // Execute the associated command
+            cli_command_run(it->cmd_name, NULL);
+            // If command disabled the CLI, skip re-render
+            // if (!cli_core_is_enabled()) {
+            //     need_render = false;
+            // }
         }
-    } else if (it->submenu) {
-            if (sp + 1 < MAX_MENU_DEPTH) stack[++sp] = it->submenu;
-        } else if (sp > 0) {
-            sp--;
+        else if (it->submenu) {
+            // Enter submenu if room on stack
+            if (s_sp + 1 < MAX_MENU_DEPTH) {
+                s_stack[++s_sp].frame = it->submenu;
+            }
         }
+        else if (s_sp > 0) {
+            // “Back” action: no cmd or submenu, so pop stack
+            --s_sp;
+        }
+        break;  // Stop scanning items after a match
+    }
+
+    // Redraw menu only if an action occurred
+    if (need_render) {
         menu_render();
         return true;
     }
-    return false;
+
+    return false;  // No matching key or nothing to do
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+// // File: src/cli/menu.c (Final, Cleaned Version)
+
+// #include "cli/menu.h"
+// #include "cli/command.h"
+// #include "cli/core.h"
+
+// #include <stdio.h>
+// #include <stdint.h>
+
+// #define MAX_MENU_DEPTH 5
+
+// // A single entry on the menu navigation stack
+// typedef struct {
+//     const menu_frame_t *frame;
+// } menu_stack_entry_t;
+
+// // The actual menu stack and stack pointer
+// static menu_stack_entry_t s_stack[MAX_MENU_DEPTH];
+// static int s_sp = -1;
+
+// // --- Core Engine Functions ---
+
+// void menu_init(const menu_frame_t *root_frame) {
+//     s_sp = 0;
+//     s_stack[0].frame = root_frame;
+// }
+
+// void menu_render(void) {
+//     if (s_sp < 0) return; // Nothing to render
+
+//     const menu_frame_t *f = s_stack[s_sp].frame;
+//     printf("\n=== %s ===\n", f->title);
+//     for (size_t i = 0; i < f->count; i++) {
+//         char key = f->items[i].key;
+//         if (key >= ' ' && key <= '~') {
+//             printf(" %c) %s\n", key, f->items[i].desc);
+//         } else {
+//             printf("0x%02X) %s\n", (uint8_t)key, f->items[i].desc);
+//         }
+//     }
+//     printf("\nSelect: ");
+//     fflush(stdout);
+// }
+
+// bool menu_input(char ch) {
+//     if (s_sp < 0) return false;
+
+//     const menu_frame_t *f = s_stack[s_sp].frame;
+//     for (size_t i = 0; i < f->count; i++) {
+//         const menu_item_t *it = &f->items[i];
+//         if (it->key != ch) continue;
+
+//         // A matching key was found, process the action
+//         if (it->cmd_name) {
+//             cli_command_run(it->cmd_name, NULL);
+//             if (!cli_core_is_enabled()) return true;
+//         } else if (it->submenu) {
+//             if (s_sp + 1 < MAX_MENU_DEPTH) {
+//                 s_stack[++s_sp].frame = it->submenu;
+//             }
+//         } else if (s_sp > 0) {
+//             // This is the 'Back' option (key defined, but no cmd or submenu)
+//             s_sp--;
+//         }
+        
+//         menu_render();
+//         return true;
+//     }
+//     return false; // No matching key found
+// }

@@ -10,7 +10,7 @@ static uint8_t reverse_bits(uint8_t b) {
     return b;
 }
 
-// Final, robust test function. Assumes a 1kΩ pull-up resistor is present on the data line.
+// Assumes a 1kΩ pull-up resistor is present on the data line.
 static void test_controller(void) {
     uint8_t response[3] = {0};
 

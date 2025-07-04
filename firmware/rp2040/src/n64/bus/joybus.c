@@ -1,9 +1,11 @@
 //Command Description   Console Devices  Tx Bytes Rx Bytes
 //0xFF    Reset & info  N64 Cartridge    1        3
-//0x04    Read EEPROM   N64 Cartridge    2	      8
-//0x05    Write EEPROM  N64 Cartridge    10	      1
+//0x04    Read EEPROM   N64 Cartridge    2        8
+//0x05    Write EEPROM  N64 Cartridge    10       1
 
 #include <stdlib.h>
+#include <string.h>
+
 #include "pico/stdlib.h"
 #include "pico/platform.h"
 #include "hardware/gpio.h"
@@ -16,16 +18,17 @@
 uint32_t ReadCount = 0;
 uint32_t gEepromSize = 0;
 
-void n64_joybus_reset() {
+void joybus_reset() {
     sleep_ms(300);
     gpio_put(N64_SYSTEM_RESET_PIN, true);
     sleep_ms(100);
 }
 
-bool n64_joybus_init() {
+bool joybus_init() {
     InitEepromClock(N64_EEPROM_CLOCK_PIN);
-    n64_joybus_reset();
+    joybus_reset();
     InitEeprom(N64_EEPROM_DATA_PIN);
+    return true;
 }
 
 void __time_critical_func(convertToPio)(const uint8_t* command, const int len, uint32_t* result, int* resultLen) {
@@ -236,3 +239,97 @@ void __time_critical_func(WriteEepromData)(uint32_t offset, uint8_t *buffer)
         sleep_us(200);
     }
 }
+
+
+size_t joybus_get_eeprom_size(void) {
+    // This safely returns the size that was detected by your InitEeprom function.
+    extern uint32_t gEepromSize;
+    return gEepromSize;
+}
+
+
+bool joybus_read_eeprom_block(uint8_t block_index, uint8_t* buffer) {
+    // This is the low-level building block for all EEPROM reads.
+    // Its logic is extracted from your original ReadEepromData function.
+    extern void convertToPio(const uint8_t*, const int, uint32_t*, int*);
+    extern uint32_t GetInputWithTimeout(void);
+    extern PIO pio;
+    extern uint piooffset;
+    extern pio_sm_config config;
+    
+    if (!buffer) return false;
+
+    // 1. Construct the read command (0x04) with the specific block index.
+    uint8_t read_command[] = {0x04, block_index};
+    uint32_t pio_result_buffer[8];
+    int result_len;
+    
+    convertToPio(read_command, 2, pio_result_buffer, &result_len);
+
+    // 2. Send the command (this logic should be familiar)
+    uint32_t first_input_byte;
+    uint32_t retries = 0;
+    do {
+        pio_sm_set_enabled(pio, 0, false);
+        pio_sm_init(pio, 0, piooffset + joybus_offset_outmode, &config);
+        pio_sm_set_enabled(pio, 0, true);
+        for (int i = 0; i < result_len; i++) {
+            pio_sm_put_blocking(pio, 0, pio_result_buffer[i]);
+        }
+        
+        first_input_byte = GetInputWithTimeout();
+
+        if (retries++ > 10) return false; // Fail after 10 retries
+
+    } while (first_input_byte == 0xFFFFFFFF); // Retry on timeout
+
+    // 3. Read the 8 bytes of data from the PIO RX FIFO.
+    buffer[0] = (uint8_t)first_input_byte;
+    for (int i = 1; i < 8; i++) {
+        buffer[i] = (uint8_t)pio_sm_get_blocking(pio, 0);
+    }
+    
+    sleep_us(200);
+    return true; // Success!
+}
+
+bool joybus_write_eeprom_block(uint8_t block_index, const uint8_t data[8])
+{
+    if (!data) return false;
+
+    // ----- 1. Build the 0x05 command frame -----
+    uint8_t cmd[10] = { 0x05, block_index };
+    memcpy(&cmd[2], data, 8);
+
+    uint32_t frame[10];
+    int frame_len;
+    convertToPio(cmd, 10, frame, &frame_len);
+
+    // ----- 2. Transmit + poll for the single-byte ACK -----
+    for (int attempt = 0; attempt < 10; ++attempt)       // timeout after 10 tries
+    {
+        // Switch the state machine to OUT mode, like in the read helper
+        pio_sm_set_enabled(pio, 0, false);
+        pio_sm_init(pio, 0, piooffset + joybus_offset_outmode, &config);
+        pio_sm_set_enabled(pio, 0, true);
+
+        for (int i = 0; i < frame_len; ++i)
+            pio_sm_put_blocking(pio, 0, frame[i]);
+
+        uint32_t first = GetInputWithTimeout();
+        if (first == 0xFFFFFFFF) continue;               // try again (cart silent)
+
+        uint8_t response = (uint8_t)first;
+        if (response == 0x00)                            // ACK OK
+        {
+            sleep_us(200);                               // guard time between blocks
+            return true;
+        }
+
+        // non-zero ACK → cart busy, wait a bit then retry
+        sleep_ms(10);
+    }
+
+    return false; // exceeded retries
+}
+

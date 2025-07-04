@@ -91,5 +91,7 @@ bool cli_command_run(const char *name, const cli_args_t *args);
  * @param out_count  Receives number of entries.
  */
 void cli_command_list(const cli_command_t **out_cmds, size_t *out_count);
-void exit_cmd_register(void);
+
+// void exit_cmd_register(void);
+
 #endif // CLI_COMMAND_H

@@ -1,19 +1,20 @@
 /**
  * @file adbus.c
  * @brief Low-level 16-bit multiplexed Address/Data bus implementation for N64 cartridges.
- * This version restores the original, correct control flow for address latching.
  */
-
+#include "n64/pins.h"
 #include "n64/bus/adbus.h"
+
 #include "hardware/gpio.h"
 #include "hardware/structs/sio.h"
 #include "pico/stdlib.h"
-#include "n64/pins.h"
 
 // --- Private Constants ---
 #define ADBUS_LATCH_DELAY_NOPS 7
 #define ADBUS_TURNAROUND_NOPS 4
 #define ADBUS_READ_ACCESS_NOPS 55
+// #define ADBUS_READ_ACCESS_NOPS 120
+#define ADBUS_WRITE_PULSE_NOPS 25
 
 // Mask of all four control lines in their inactive (HIGH) state.
 #define ADBUS_CTRL_INACTIVE_MASK \
@@ -21,7 +22,6 @@
 
 // --- Private Function Prototypes ---
 static void adbus_delay_nops(int nops);
-static void adbus_set_direction(bool output);
 static inline void adbus_latch_word_internal(uint16_t word, uint32_t ale_pin_mask);
 
 //==============================================================================
@@ -49,7 +49,6 @@ void adbus_latch_address(uint32_t addr) {
     uint16_t high_word = addr >> 16;
     uint16_t low_word = (uint16_t)addr;
 
-    // --- THIS IS THE CRITICAL FIX ---
     // Ensure all control lines are inactive before starting the sequence.
     sio_hw->gpio_set = ADBUS_CTRL_INACTIVE_MASK;
 
@@ -88,15 +87,20 @@ void adbus_write_word(uint16_t data) {
     sio_hw->gpio_set = data_bits;
     adbus_delay_nops(ADBUS_LATCH_DELAY_NOPS);
     sio_hw->gpio_clr = (1UL << N64_ADBUS_WR_PIN);
-    adbus_delay_nops(ADBUS_READ_ACCESS_NOPS);
+    adbus_delay_nops(ADBUS_WRITE_PULSE_NOPS);
     sio_hw->gpio_set = (1UL << N64_ADBUS_WR_PIN);
     adbus_delay_nops(ADBUS_LATCH_DELAY_NOPS);
     adbus_set_direction(false);
 }
 
 void adbus_assert_reset(bool active) {
-    // N64 reset is active-low.
-    gpio_put(N64_SYSTEM_RESET_PIN, !active);
+    if (active) {
+        gpio_put(N64_SYSTEM_RESET_PIN, 0);
+        sleep_ms(20);
+    } else {
+        gpio_put(N64_SYSTEM_RESET_PIN, 1);
+        sleep_ms(150);
+    }
 }
 
 // --- Private Helper Implementations ---
@@ -107,7 +111,7 @@ static void adbus_delay_nops(int nops) {
     }
 }
 
-static void adbus_set_direction(bool output) {
+void adbus_set_direction(bool output) {
     if (output) {
         // Set all AD bus pins to SIO function and disable pulls for output.
         for (int i = 0; i < N64_ADBUS_PIN_COUNT; ++i) {
@@ -128,7 +132,6 @@ static void adbus_set_direction(bool output) {
     }
 }
 
-// This function now uses a pin MASK, just like your original code.
 static inline void adbus_latch_word_internal(uint16_t word, uint32_t ale_pin_mask) {
     uint32_t v = (uint32_t)word << N64_ADBUS_PIN_START;
     
@@ -140,6 +143,7 @@ static inline void adbus_latch_word_internal(uint16_t word, uint32_t ale_pin_mas
     // Pulse the corresponding ALE line low to latch the value.
     sio_hw->gpio_clr = ale_pin_mask;
     adbus_delay_nops(ADBUS_LATCH_DELAY_NOPS); // Hold time
+    // sio_hw->gpio_set = ale_pin_mask;         // THE FIX: ALE goes HIGH again
     // The ALE line will be de-asserted by the gpio_set(CTRL_INACTIVE_MASK)
     // at the beginning of the next bus operation.
 }

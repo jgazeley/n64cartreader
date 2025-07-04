@@ -1,180 +1,127 @@
-// File: src/cli/core.c
+// File: src/core.c
 #include "cli/core.h"
-
-#ifdef ENABLE_CLI
-
-#include "cli/menu.h"
 #include "cli/command.h"
+#include "cli/io.h"
+#include "cli/menu.h"
+#include "cli/menu_definitions.h"
+#include "cli/plugins.h"
 
-#include "pico/stdlib.h"
-#include "tusb.h"
+#include "n64/devices/gamepak.h"    /// NOTE: move to plugins somehow 
+
+#include <ctype.h>
 #include <stdio.h>
 
-static bool        s_ready          = false;
-static bool        s_was_connected  = false;
-static bool        s_banner_shown   = false;
-static bool        s_cli_enabled    = false;
+/*----------------------------------------------------------
+ * Core state
+ *----------------------------------------------------------*/
+static bool s_ready         = false;
+static bool s_cli_enabled   = false;
+static bool s_was_connected = false;
+static bool s_banner_shown  = false;
+static bool s_skip_once      = false;
 static const char * const *s_banner_lines = NULL;
 static size_t             s_banner_count = 0;
 static cli_mode_t         current_mode   = CLI_MODE_MENU;
-// in src/cli/core.c, among your static globals add:
-static bool s_skip_once = false;
 
-// Print the banner once
-static void cli_print_banner(void) {
-    if (!s_banner_lines) return;
-    for (size_t i = 0; i < s_banner_count; ++i) {
-        printf("%s\n", s_banner_lines[i]);
-    }
-    printf("\n");
-}
+/*----------------------------------------------------------
+ * Default banner stored in read‐only flash, with compile‐time count
+ *----------------------------------------------------------*/
+const char * const default_banner[] = {
+    "************** n64tool ***************",
+    "    N64 Cartridge Reader / Writer     ",
+    "======================================",
+    "Version:   0.2.0-alpha",
+    "Built:     " __DATE__,
+};
 
 void cli_set_banner(const char * const *lines, size_t count) {
     s_banner_lines = lines;
     s_banner_count = count;
 }
 
-/**
- * @brief Initialize the CLI system.
- * @return true on success (CLI ready to accept input), false on failure.
- */
-// bool cli_core_init(void) {
-//     // --- No stdio_init_all()/tusb_init() here! those happen in main() ---
+// Print the banner once using our platform-agnostic I/O function
+void cli_print_banner(void) {
+    if (!s_banner_lines) return;
 
-//     transport_init();          // register the CDC transport
-//     cli_command_init();        // register built-in commands
+    for (size_t i = 0; i < s_banner_count; ++i) {
+        cli_io_write_str(s_banner_lines[i]);
+        cli_io_write_str("\n");
+    }
+    cli_io_write_str("\n");
+}
 
-//     // Default banner if none set
-//     static const char *default_banner[] = {
-//         "=== Project Console ===",
-//         "Version: 1.0.0",
-//         "Built:   " __DATE__,
-//         "Board:   MCU???"
-//     };
-//     if (!s_banner_lines) {
-//         s_banner_lines = default_banner;
-//         s_banner_count = sizeof default_banner / sizeof *default_banner;
-//     }
-
-//     // Show banner + initial menu
-//     cli_print_banner();
-//     menu_init_root();
-
-//     s_ready = true;
-//     return true;
-// }
-
-// /**
-//  * @brief Main loop tick: pumps USB, shows menu on connect, handles input.
-//  */
-// void cli_core_task(void) {
-//     if (!s_ready) return;
-
-//     tud_task();
-
-//     bool now_connected = tud_cdc_connected();
-//     if (now_connected && !s_was_connected) {
-//         menu_init_root();
-//     }
-//     s_was_connected = now_connected;
-//     if (!now_connected) return;
-
-//     if (current_mode == CLI_MODE_MENU) {
-//         int c = getchar_timeout_us(0);
-//         if (c < 0) return;
-//         if (c <= ' ') return;
-//         if (c >= 'a' && c <= 'z') c -= 'a' - 'A';
-//         menu_input((char)c);
-//     }
-// }
-bool cli_core_init(void) {
-    // 1) Register transport & commands
+/*----------------------------------------------------------
+ * Initialization (called once at startup)
+ *----------------------------------------------------------*/
+bool cli_core_init(void)
+{
+    cli_io_init();
     cli_command_init();
+    cli_plugins_initialize_all();
 
-    // 2) Install default banner if none provided
-    static const char *default_banner[] = {
-        "=== Project Console ===",
-        "Version:    1.0.0",
-        "Built:     " __DATE__,
-        "Platform:   RP2040"
-    };
+    application_menu_init();
+    // Render the menu immediately on startup (before any connect)
+    // menu_render();
+
     if (!s_banner_lines) {
-        s_banner_lines = default_banner;
-        s_banner_count = sizeof default_banner / sizeof *default_banner;
+        cli_set_banner(default_banner, DEFAULT_BANNER_LINES);
     }
 
-    // 3) Show the root menu (banner waits on first connect)
-    menu_init_root();
-
-    // 4) Mark ready & enabled
-    s_ready       = true;
-    s_cli_enabled = true;
+    s_was_connected = false;
+    s_banner_shown  = false;
+    s_ready         = true;
+    s_cli_enabled   = true;
     return true;
 }
 
-
-void cli_core_task(void) {
+void cli_core_task(void)
+{
     if (!s_ready) return;
 
-    tud_task();
-    bool now_connected = tud_cdc_connected();
+    cli_io_poll();
+    bool now_connected = cli_io_is_connected();
 
     if (now_connected && !s_was_connected) {
+        // Print banner once
         if (!s_banner_shown) {
             cli_print_banner();
             s_banner_shown = true;
         }
-        menu_init_root();
+        // Re-init and render menu prompt on every new connection:
+        application_menu_init();
+        menu_render();
     }
     s_was_connected = now_connected;
     if (!now_connected) return;
 
-    // If disabled, watch for key but skip exactly one
+    /* disabled-CLI state: wait for any key to re-enable */
     if (!s_cli_enabled) {
-        int c = getchar_timeout_us(0);
-        if (c >= 0) {
-            if (s_skip_once) {
-                // consume this one and reset
-                s_skip_once = false;
-            } else {
-                // real re-enable
-                cli_core_enable();
-            }
+        if (cli_io_read_char_nonblocking() >= 0) {
+            s_cli_enabled = true;
+            // show menu again when re-enabled
+            menu_render();
         }
         return;
     }
 
-    // Normal menu input
+    /* normal menu mode: read & dispatch a single printable char */
     if (current_mode == CLI_MODE_MENU) {
-        int c = getchar_timeout_us(0);
-        if (c < 0 || c <= ' ') return;
-        if (c >= 'a' && c <= 'z') c -= 'a' - 'A';
-        menu_input((char)c);
+        int i = cli_io_read_char_nonblocking();
+        if (i < 0 || !isprint(i)) return; // No valid input, do nothing.
+
+        // If the check passed, proceed with handling the input as normal.
+        char    raw = (char)i;
+        char    cmd = (char)toupper((unsigned char)raw);
+
+        /* echo and newline in one go */
+        cli_io_write_str((char[]){ raw, '\n', '\0' });
+
+        /* dispatch; menu_input returns false on invalid key */
+        if (!menu_input(cmd)) {
+            cli_io_write_str("Unknown option: '");
+            cli_io_write_char(raw);
+            cli_io_write_str("'\n");
+            menu_render();
+        }
     }
 }
-
-bool cli_core_is_ready(void) {
-    return s_ready && tud_cdc_connected();
-}
-
-bool cli_core_is_enabled(void) {
-    return s_cli_enabled;
-}
-
-void cli_core_set_mode(cli_mode_t new_mode) {
-    current_mode = new_mode;
-}
-
-void cli_core_disable(void) {
-    s_cli_enabled = false;
-    s_skip_once   = true;         // skip the next keypress
-    printf("Leaving CLI mode. USB stays up. Press any key to re-enter.\n\n");
-}
-
-void cli_core_enable(void) {
-    s_cli_enabled = true;
-    cli_print_banner();
-    menu_init_root();
-}
-
-#endif /* ENABLE_CLI */
