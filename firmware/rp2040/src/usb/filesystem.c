@@ -25,6 +25,21 @@ static void format_8_3_filename(const char* basename, const char* ext, uint8_t* 
     for (int i = 0; i < 3 && ext[i] != '\0'; i++) dest[8 + i] = toupper((unsigned char)ext[i]);
 }
 
+static uint32_t choose_spc(uint32_t data_sectors)
+{
+    uint32_t spc = 1;                  /* start at 512-byte clusters   */
+    while (1) {
+        uint32_t clusters = (data_sectors + spc - 1) / spc;
+
+        if (clusters < 4085) {         /* too few → shrink clusters   */
+            if (spc > 1) { spc >>= 1; continue; }
+        } else if (clusters > 65524) { /* too many → grow clusters    */
+            if (spc < 64) { spc <<= 1; continue; }
+        }
+        return spc;                    /* just right for FAT-16        */
+    }
+}
+
 // --- FIX #1: Update the function signature to match the header file ---
 void fs_create_virtual_disk(const n64_gamepak_info_t* info, const char* info_str, size_t info_len) {
     memset(msc_disk, 0, sizeof(msc_disk));

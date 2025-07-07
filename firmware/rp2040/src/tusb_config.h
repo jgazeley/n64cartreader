@@ -71,7 +71,7 @@
  * Tinyusb use follows macros to declare transferring memory so that they can be put
  * into those specific section.
  * e.g
- * - CFG_TUSB_MEM SECTION : __attribute__ (( section(".usb_ram") ))
+ * - CFG_TUSB_MEM_SECTION : __attribute__ (( section(".usb_ram") ))
  * - CFG_TUSB_MEM_ALIGN   : __attribute__ ((aligned(4)))
  */
 #ifndef CFG_TUSB_MEM_SECTION
@@ -91,24 +91,36 @@
 #endif
 
 //------------- CLASS -------------//
-#define CFG_TUD_CDC              1
-#if ENABLE_MSC_MODE
-  #define CFG_TUD_MSC           1
+
+// This block uses the build flags from CMakeLists.txt to determine
+// which USB classes to enable.
+#if ENABLE_CLI
+  // CLI Mode: Enable CDC for the shell, no MSC.
+  #define CFG_TUD_CDC              1
+  #define CFG_TUD_MSC              0
+  // Define buffer sizes only when CDC is active
+  #define CFG_TUD_CDC_RX_BUFSIZE   8192
+  #define CFG_TUD_CDC_TX_BUFSIZE   8192
+#elif ENABLE_MSC_MODE
+  // MSC Mode: Enable MSC, explicitly disable CDC to fix corruption bug.
+  #define CFG_TUD_CDC              0
+  #define CFG_TUD_MSC              1
+#else
+  // Fallback/Error: Disable all major classes.
+  #define CFG_TUD_CDC              0
+  #define CFG_TUD_MSC              0
 #endif
-#define CFG_TUD_HID              0
-#define CFG_TUD_MIDI             0
-#define CFG_TUD_VENDOR           1
-#define CFG_TUSB_RHPORT0_MODE  OPT_MODE_DEVICE
- 	
-// CDC FIFO size of TX and RX
-// #define CFG_TUD_CDC_RX_BUFSIZE   (TUD_OPT_HIGH_SPEED ? 512 : 64)
-// #define CFG_TUD_CDC_TX_BUFSIZE   (TUD_OPT_HIGH_SPEED ? 512 : 64)
 
-// CDC Endpoint transfer buffer size, more is faster
-#define CFG_TUD_CDC_EP_BUFSIZE   (TUD_OPT_HIGH_SPEED ? 512 : 64)
+// Always disable classes you aren't using.
+#define CFG_TUD_HID                0
+#define CFG_TUD_MIDI               0
+// Keep VENDOR enabled for the pico-sdk's special reset interface.
+#define CFG_TUD_VENDOR             1
 
-// MSC Buffer size of Device Mass storage
-#define CFG_TUD_MSC_EP_BUFSIZE   512
+// CDC/MSC Endpoint buffer sizes
+#define CFG_TUD_CDC_EP_BUFSIZE     (TUD_OPT_HIGH_SPEED ? 512 : 64)
+#define CFG_TUD_MSC_EP_BUFSIZE     512
+
 
 #ifdef __cplusplus
  }

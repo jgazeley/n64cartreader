@@ -11,10 +11,12 @@
 #include "utils/format.h"
 
 #include "n64/devices/gamepak.h"
+#include "tusb.h"
 
 #include <stdio.h>
 #include <string.h>
 #include <stdint.h>
+#include <stdlib.h>
 
 //------------------------------------------------------------------------------
 // Forward Declarations (Private Command Handlers)
@@ -30,12 +32,14 @@ static bool cmd_n64_hexdump_eeprom(const cli_args_t *args);
 static bool cmd_n64_hexdump_sram(const cli_args_t *args);
 static bool cmd_n64_hexdump_fram(const cli_args_t *args);
 static bool cmd_n64_write32_sram(const cli_args_t *args);
+static bool cmd_n64_write32_eeprom(const cli_args_t *args);
 static bool cmd_n64_write32_fram(const cli_args_t *args);
+static bool cmd_n64_fullwrite_fram(const cli_args_t *args);
+static bool cmd_n64_erase_fram(const cli_args_t *args);
 
 // --- Stubs for Future/Unimplemented Commands ---
 static bool cmd_n64_shotgun(const cli_args_t *args);
 static bool cmd_n64_verify_crc(const cli_args_t *args);
-static bool cmd_n64_write32_eeprom(const cli_args_t *args);
 static bool n64_header_ascii(const cli_args_t *args); // Consider renaming to cmd_n64_view_header_ascii for consistency
 
 //------------------------------------------------------------------------------
@@ -52,6 +56,8 @@ static void init_n64_commands(void) {
         // { "n64_dump_fram",    cmd_n64_hexdump_fram,             "View the Flashram (if it exists) in hex"        },
         // { "n64_write32_sram", cmd_n64_write32_sram,             "Write & verify a 32-byte pattern to SRAM"     },
         { "n64_write32_fram", cmd_n64_write32_fram,             "Write & verify a 32-byte pattern to FRAM"     },
+        { "n64_writeall_fram", cmd_n64_fullwrite_fram,             "Write & verify entire FRAM"     },
+        { "n64_erase_fram", cmd_n64_erase_fram,             "Erase entire FRAM"     },
         // { "controller_test",  cmd_n64_test_controller,          "Probe the Joybus for a controller"            },
         // { "button_test",      cmd_n64_test_buttons,             "Read raw data from the controller"            },
         // { "shotgun",      cmd_n64_shotgun,              "Spew data from the ROM (header over and over))"   },
@@ -76,6 +82,8 @@ static const menu_item_t n64_menu_items[] = {
     // { 'U', "DUMP: SRAM (to stdout)",           "debug_dump_sram",      NULL  },
     // { 'P', "DUMP: EEPROM (to stdout)",         "debug_dump_eeprom",    NULL  },
     { 'W', "TEST: Write 32B to FRAM",          "n64_write32_fram",     NULL  },
+    { 'A', "TEST: Write entire FRAM",          "n64_writeall_fram",     NULL  },
+    { 'E', "TEST: Erase FRAM",          "n64_erase_fram",     NULL  },
     // { 'C', "TEST: Controller Test",            "controller_test",      NULL  },
     // { 'B', "TEST: Button Test",                "button_test",          NULL  },
     // { 'X', "TEST: Write 64B to EEPROM",        "debug_write32_eeprom", NULL  },
@@ -479,6 +487,47 @@ static bool cmd_n64_write32_eeprom(const cli_args_t *args)
     return true;
 }
 
+// static bool cmd_n64_write32_fram(const cli_args_t *a)
+// {
+//     (void)a;
+//     const size_t test_size   = 64;
+//     const uint32_t test_addr = 0;          /* first 64 bytes */
+
+//     if (!_gamepak_check_and_refresh() ||
+//         gamepak_get_save_type() != N64_SAVE_TYPE_FLASHRAM)
+//     {
+//         printf("INFO: FlashRAM not detected.\n");
+//         return true;
+//     }
+
+//     uint8_t wr[test_size];
+//     for (size_t i = 0; i < test_size/2; ++i) {
+//         uint16_t w = (i & 1) ? 0x1212 : 0x3434;
+//         wr[2*i]   = w >> 8;
+//         wr[2*i+1] = (uint8_t)w;
+//     }
+
+//     printf("\n>> Writing 64-byte test pattern to FlashRAM...\n");
+//     utils_format_hexdump(wr, test_size, test_addr);
+
+//     if (!gamepak_write_flashram_bytes(test_addr, wr, test_size)) {
+//         printf("ERROR: FlashRAM write or verify failed.\n");
+//         return true;
+//     }
+
+//     uint8_t rd[test_size];
+//     gamepak_read_flashram_bytes(test_addr, rd, test_size);
+
+//     if (memcmp(wr, rd, test_size) == 0) {
+//         printf("[SUCCESS] verified OK:\n");
+//         utils_format_hexdump(rd, test_size, test_addr);
+//     } else {
+//         printf("[FAILURE] data mismatch!\n");
+//     }
+//     return true;
+// }
+
+
 static bool cmd_n64_write32_fram(const cli_args_t *a)
 {
     (void)a;
@@ -520,23 +569,125 @@ static bool cmd_n64_write32_fram(const cli_args_t *a)
 }
 
 
+static bool cmd_n64_erase_fram(const cli_args_t *a)
+{
+    (void)a;
+
+    if (!_gamepak_check_and_refresh() ||
+        gamepak_get_save_type() != N64_SAVE_TYPE_FLASHRAM)
+    {
+        printf("INFO: FlashRAM not detected.\n");
+        return true;
+    }
+
+    printf("\n>> Erasing FlashRAM (%u bytes = %u blocks)…\n",
+           (unsigned)N64_FLASHRAM_SIZE,
+           (unsigned)(N64_FLASHRAM_SIZE / FLASHRAM_BLOCK_SIZE));
+
+    for (uint32_t addr = 0; addr < N64_FLASHRAM_SIZE; addr += FLASHRAM_BLOCK_SIZE)
+    {
+        if (!flashram_erase_block(addr))
+        {
+            printf("ERROR: erase failed @ 0x%06lX\n", (unsigned long)addr);
+            return true;
+        }
+        tud_task();                 /* keep USB CDC alive */
+    }
+
+    /* ---------- blank-check ---------- */
+    static uint8_t page[FLASHRAM_PAGE_SIZE];
+    for (uint32_t addr = 0; addr < N64_FLASHRAM_SIZE; addr += FLASHRAM_PAGE_SIZE)
+    {
+        if (!gamepak_read_flashram_bytes(addr, page, FLASHRAM_PAGE_SIZE))
+        {
+            printf("ERROR: readback failed @ 0x%06lX\n", (unsigned long)addr);
+            return true;
+        }
+        for (size_t i = 0; i < FLASHRAM_PAGE_SIZE; ++i)
+            if (page[i] != 0xFF)
+            {
+                printf("[FAILURE] erase verify mismatch @ 0x%06lX (%02X)\n",
+                       (unsigned long)(addr + i), page[i]);
+                return true;
+            }
+    }
+
+    printf("[SUCCESS] device is blank (all 0xFF)\n");
+    return true;
+}
 
 
+static bool cmd_n64_fullwrite_fram(const cli_args_t *a)
+{
+    (void)a;
 
+    if (!_gamepak_check_and_refresh() ||
+        gamepak_get_save_type() != N64_SAVE_TYPE_FLASHRAM)
+    {
+        printf("INFO: FlashRAM not detected.\n");
+        return true;
+    }
 
+    printf("\n>> Writing 0xDEAD-0xBEEF pattern to entire FlashRAM…\n");
 
+    /* Build one FLASHRAM_PAGE_SIZE-byte chunk of the pattern once */
+    static uint8_t page[FLASHRAM_PAGE_SIZE];
+    for (size_t i = 0; i < FLASHRAM_PAGE_SIZE / 2; ++i)
+    {
+        uint16_t w = (i & 1) ? 0xBEEF : 0xDEAD;
+        page[2 * i]     = w >> 8;
+        page[2 * i + 1] = (uint8_t)w;
+    }
 
+    /* Program a whole 128-KB sector at a time – requires a scratch buffer */
+    static uint8_t *block = NULL;
+    if (!block) block = malloc(FLASHRAM_BLOCK_SIZE);
+    if (!block)
+    {
+        printf("ERROR: cannot allocate sector buffer\n");
+        return true;
+    }
 
+    for (uint32_t base = 0; base < N64_FLASHRAM_SIZE; base += FLASHRAM_BLOCK_SIZE)
+    {
+        /* Replicate the pattern across the entire 128-KB block */
+        for (uint32_t off = 0; off < FLASHRAM_BLOCK_SIZE; off += FLASHRAM_PAGE_SIZE)
+            memcpy(block + off, page, FLASHRAM_PAGE_SIZE);
 
+        if (!gamepak_write_flashram_sector(base, block))
+        {
+            printf("ERROR: program failed @ 0x%06lX\n", (unsigned long)base);
+            return true;
+        }
+        tud_task();                 /* service USB */
+    }
 
+    /* ---------- verify ---------- */
+    for (uint32_t addr = 0; addr < N64_FLASHRAM_SIZE; addr += FLASHRAM_PAGE_SIZE)
+    {
+        if (!gamepak_read_flashram_bytes(addr, page, FLASHRAM_PAGE_SIZE))
+        {
+            printf("ERROR: readback failed @ 0x%06lX\n", (unsigned long)addr);
+            return true;
+        }
 
+        /* Compare against golden pattern we built earlier */
+        for (size_t i = 0; i < FLASHRAM_PAGE_SIZE; ++i)
+        {
+            uint8_t expect = ((i / 2) & 1) ? 0xEF : 0xDA;    /* BEEF or DEAD */
+            if (page[i] != expect)
+            {
+                printf("[FAILURE] verify mismatch @ 0x%06lX (got %02X, want %02X)\n",
+                       (unsigned long)(addr + i), page[i], expect);
+                utils_format_hexdump(page, FLASHRAM_PAGE_SIZE, addr);
+                return true;
+            }
+        }
+    }
 
-
-
-
-
-
-
+    printf("[SUCCESS] entire device verified OK – pattern intact\n");
+    return true;
+}
 
 
 

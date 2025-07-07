@@ -10,31 +10,9 @@
 #include <stddef.h>
 #include <stdint.h>
 
-// #define N64_ROM_BASE              0x10000000u
-// #define N64_SRAM_BASE             0x08000000u
-// #define N64_HEADER_SIZE           64u
-// #define N64_SAVE_PAGE_BUFFER_SIZE 512u
-// #define N64_SRAM_SIZE             (32 * 1024u)
-// #define N64_EEPROM_4K_SIZE        512u
-// #define N64_EEPROM_16K_SIZE       2048u
-// #define N64_FLASHRAM_SIZE         (128 * 1024u)
-// #define FLASHRAM_READ_CHUNK_SIZE  128
-// #define FLASHRAM_CMD_REG          (N64_SRAM_BASE + 0x010000)
-// #define FLASHRAM_READ_CMD         0xF0000000u
-// #define FLASHRAM_READ_ARRAY_CMD   0xF0000000u
-// #define FLASHRAM_RESET_CMD        0xFF000000u
-// #define FLASHRAM_STATUS_CMD       0x70000000u
-// #define FLASHRAM_ID_CMD           0x90000000u
-// #define FLASHRAM_SET_STATUS_MODE_CMD 0xE1000000u
-
-// #define FLASHRAM_STATUS_READY     0x8080
-// #define FLASHRAM_MFG_MACRONIX     0xC2
-// #define FLASHRAM_MFG_SHARP        0xB0
-
 //==============================================================================
 // Constants and Core Types
 //==============================================================================
-
 // ---------------------------- Cartridge address map --------------------------
 #define N64_ROM_BASE                0x10000000u   // Parallel bus (ROM)
 #define N64_SRAM_BASE               0x08000000u   // Parallel bus (save area)
@@ -91,6 +69,7 @@ static const uint8_t FLASH_IDLE_MN63F81[8] = {0x11,0x11,0x80,0x01,0x00,0x32,0x00
 // ---------------------------- Misc helpers -----------------------------------
 #define FLASHRAM_WORD_ADDR(byte_addr)   ((byte_addr) >> 1)   // cart quirk
 
+
 /**
  * @struct n64_gamepak_header_t
  * @brief  Exact 64-byte on-cart header layout (packed, no padding).
@@ -136,7 +115,9 @@ typedef struct {
 
 /** @brief Gets a read-only pointer to the pre-loaded 512-byte save data page. */
 const uint8_t* gamepak_get_save_page_buffer(void);
-
+// bool flashram_erase_block(uint32_t byte_addr);
+// bool gamepak_flashram_chip_erase(void);
+// bool flashram_program_page(uint32_t byte_addr, const uint8_t data[128]);
 
 //==============================================================================
 // Initialization and Status
@@ -255,70 +236,6 @@ bool gamepak_write_flashram_sector(uint32_t address, const uint8_t* buffer);
 
 bool gamepak_write_flashram_bytes(uint32_t addr, const uint8_t *src, size_t len);
 
+bool flashram_erase_block(uint32_t byte_addr);
 
 #endif // N64_GAMEPAK_H
-
-//------------------------------------------------------------------------------
-// Initialization & Header Access
-//------------------------------------------------------------------------------
-
-// /**
-//  * @brief Initialize AD-bus and read the GamePak header.
-//  * @return true on success, false on failure.
-//  */
-// bool gamepak_init(void);
-
-/**
- * @brief  Get pointer to the global GamePak info.
- * @note   Returns NULL if init() has not been called or failed.
- */
-// const n64_gamepak_info_t    *gamepak_get_info(void);
-// const n64_gamepak_header_t  *gamepak_get_header(void);
-// bool gamepak_is_valid(void);
-
-//------------------------------------------------------------------------------
-// Header Field Getters
-//------------------------------------------------------------------------------
-
-
-//------------------------------------------------------------------------------
-// ROM Read Utilities
-//------------------------------------------------------------------------------
-
-// /**
-//  * @brief Read arbitrary bytes from GamePak ROM.
-//  * @param base_addr  Starting ROM address.
-//  * @param buf        Destination buffer.
-//  * @param len        Number of bytes to read (must be even).
-//  * @return true on success.
-//  */
-// bool gamepak_read_bytes(uint32_t base_addr, uint8_t *buf, size_t len);
-
-// /**
-//  * @brief Fast burst read from GamePak ROM (no per-word delays).
-//  * @param base_addr  Starting ROM address.
-//  * @param buf        Destination buffer.
-//  * @param len        Number of bytes to read (must be even).
-//  * @return true on success.
-//  */
-// bool gamepak_read_bytes_fast(uint32_t base_addr, uint8_t *buf, size_t len);
-
-// //------------------------------------------------------------------------------
-// // SRAM (SavePak) Functions
-// //------------------------------------------------------------------------------
-
-// /** @brief Check if the inserted GamePak has battery-backed SRAM. */
-// bool     gamepak_has_sram(void);
-
-// /** @brief Read one 16-bit word from GamePak SRAM. */
-// uint16_t gamepak_read_sram_word(uint32_t addr);
-// /** @brief Write one 16-bit word to GamePak SRAM. */
-// bool     gamepak_write_sram_word(uint32_t addr, uint16_t data);
-
-// /** @brief Read a 512-byte SRAM page into the given buffer. */
-// bool     gamepak_read_sram_page(uint32_t page_addr, uint8_t *buf);
-
-// /** @brief Dump the entire SRAM contents to stdout. */
-// bool     gamepak_dump_sram(void);
-
-// #endif // N64_GAMEPAK_H

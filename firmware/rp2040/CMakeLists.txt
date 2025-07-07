@@ -65,19 +65,11 @@ target_include_directories(pico-pak PRIVATE
 pico_generate_pio_header(pico-pak ${CMAKE_CURRENT_LIST_DIR}/src/n64/bus/joybus.pio)
 
 # ── Compile Definitions ────────────────────────────────────────────
+# These definitions are common to all modes
 target_compile_definitions(pico-pak PRIVATE
     CFG_TUSB_MCU=OPT_MCU_RP2040
     CFG_TUSB_RHPORT0_MODE=OPT_MODE_DEVICE
     PICO_STDIO_USB_ENABLE_RESET_VIA_VENDOR_INTERFACE=1
-
-    # --- Conditional definitions for CDC (used by both modes) ---
-    CFG_TUD_ENABLED=1
-    CFG_TUD_CDC=1
-    CFG_TUD_CDC_RX_BUFSIZE=8192
-    CFG_TUD_CDC_TX_BUFSIZE=8192
-
-    # --- Conditional definitions for MSC Mode ---
-    $<$<BOOL:${ENABLE_MSC_MODE}>:CFG_TUD_MSC=1>
 )
 
 # ── Std-IO selection ───────────────────────────────────────────────
