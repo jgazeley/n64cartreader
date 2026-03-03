@@ -22,7 +22,13 @@ typedef struct {
     uint32_t bytes_per_line;  /**< Bytes per row (columns) */
     uint32_t max_rows;        /**< Max rows to output (0 = unlimited) */
     bool     show_ascii;      /**< Include ASCII gutter if true */
+    bool     compact_only;    /**< If true, print only raw hex (no spaces/offsets) */
 } hexdump_options_t;
+
+/**
+ * @brief Dumps raw hex bytes with no formatting, useful for copy-pasting.
+ */
+void utils_format_hex_compact(const void *data, size_t length);
 
 /**
  * @brief Dumps a buffer to stdout as a formatted hex and ASCII view.

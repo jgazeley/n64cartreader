@@ -16,6 +16,7 @@ typedef struct {
     bool  (*write_bytes)(const uint8_t *data, size_t len);
     void  (*flush)(void);
     bool  (*read_byte)(uint8_t *out);   ///< New: nonblocking single-byte read
+    bool (*read_with_timeout)(uint8_t *b, uint32_t timeout_ms);
 } transport_t;
 
 /**

@@ -64,6 +64,7 @@ static const uint8_t FLASH_IDLE_MN63F81[8] = {0x11,0x11,0x80,0x01,0x00,0x32,0x00
 // Manufacturer IDs
 #define FLASHRAM_MFG_MACRONIX       0xC2
 #define FLASHRAM_MFG_SHARP          0xB0
+
 /* Panasonic (MN63F81) returns 0xB0 for MFG and 0xF1 for DEV; handled in code */
 
 // ---------------------------- Misc helpers -----------------------------------
@@ -113,8 +114,6 @@ typedef struct {
     uint32_t             rom_size_bytes; /**    < FULL size of the ROM in bytes */
 } n64_gamepak_info_t;
 
-/** @brief Gets a read-only pointer to the pre-loaded 512-byte save data page. */
-const uint8_t* gamepak_get_save_page_buffer(void);
 // bool flashram_erase_block(uint32_t byte_addr);
 // bool gamepak_flashram_chip_erase(void);
 // bool flashram_program_page(uint32_t byte_addr, const uint8_t data[128]);
@@ -144,7 +143,7 @@ bool gamepak_is_valid(void);
 const n64_gamepak_header_t* gamepak_get_header(void);
 
 /** @brief Gets a read-only pointer to the pre-loaded 512-byte save data page. */
-const uint8_t* gamepak_get_save_page_buffer(void); // <-- ADD THIS LINE
+const uint8_t* gamepak_get_save_page_buffer(void);
 
 /** @brief Gets the game title from the header, copies to a buffer, and trims spaces. */
 void gamepak_get_rom_title(char* buffer, size_t buffer_len);
@@ -156,10 +155,10 @@ n64_save_type_t gamepak_get_save_type(void);
 size_t gamepak_get_save_size(void);
 
 /** @brief Gets CRC1 value from the header. */
-uint32_t  gamepak_get_crc1(void);
+uint32_t gamepak_get_rom_crc1(void);
 
 /** @brief Gets CRC2 value from the header. */
-uint32_t  gamepak_get_crc2(void);
+uint32_t gamepak_get_rom_crc2(void);
 
 /** @brief Gets the 4-character Game ID (e.g. "NGEE", "CZGE").  
  *  
@@ -237,5 +236,43 @@ bool gamepak_write_flashram_sector(uint32_t address, const uint8_t* buffer);
 bool gamepak_write_flashram_bytes(uint32_t addr, const uint8_t *src, size_t len);
 
 bool flashram_erase_block(uint32_t byte_addr);
+
+
+
+
+
+
+
+
+
+
+//==============================================================================
+// FlashRAM Access Functions
+//==============================================================================
+
+/** @brief Checks if the cartridge has FlashRAM. */
+bool gamepak_has_flashram(void);
+
+/** @brief Forces a FlashRAM chip out of Status/ID mode and back into Data-Read mode. */
+void gamepak_flashram_reset_to_read_mode(void);
+
+/** @brief Reads bytes from FlashRAM. */
+bool gamepak_read_flashram_bytes(uint32_t address, uint8_t* buffer, size_t length);
+
+/** @brief Erases a single 128KB block (bank) of FlashRAM. Required before programming. */
+bool flashram_erase_block(uint32_t byte_addr);
+
+/** @brief Programs a 128-byte page of FlashRAM. Assumes the block is already erased. */
+bool flashram_program_page(uint32_t byte_addr, const uint8_t data[FLASHRAM_PAGE_SIZE]);
+
+/** @brief High-level wrapper to erase a sector and write a full buffer. */
+bool gamepak_write_flashram_sector(uint32_t address, const uint8_t* buffer);
+
+/** @brief Writes arbitrary bytes to FlashRAM (handles erase/program automatically). */
+bool gamepak_write_flashram_bytes(uint32_t addr, const uint8_t *src, size_t len);
+
+
+
+
 
 #endif // N64_GAMEPAK_H

@@ -9,16 +9,21 @@
 #include "hardware/structs/sio.h"
 #include "pico/stdlib.h"
 
-// --- Private Constants ---
-#define ADBUS_LATCH_DELAY_NOPS 7
-#define ADBUS_TURNAROUND_NOPS 4
-#define ADBUS_READ_ACCESS_NOPS 55
-// #define ADBUS_READ_ACCESS_NOPS 120
-#define ADBUS_WRITE_PULSE_NOPS 25
+// NOP timing constants — tuned empirically at the RP2040 default clock of 125MHz.
+// Each NOP is ~8ns at 125MHz. If you overclock (e.g. 200MHz or 250MHz),
+// these values will be proportionally too short and bus reads will become
+// unreliable. Scale them up accordingly: new_nops = old_nops * (new_mhz / 125).
+#define ADBUS_LATCH_DELAY_NOPS    7
+#define ADBUS_TURNAROUND_NOPS     4
+#define ADBUS_READ_ACCESS_NOPS    55
+// #define ADBUS_READ_ACCESS_NOPS 120   // fallback if 55 proves unreliable
+#define ADBUS_WRITE_PULSE_NOPS    25
 
 // Mask of all four control lines in their inactive (HIGH) state.
 #define ADBUS_CTRL_INACTIVE_MASK \
     ((1UL << N64_ADBUS_WR_PIN) | (1UL << N64_ADBUS_RD_PIN) | (1UL << N64_ADBUS_ALE_H_PIN) | (1UL << N64_ADBUS_ALE_L_PIN))
+
+static bool s_adbus_is_output = false;
 
 // --- Private Helper Functions ---
 static void adbus_delay_nops(int nops) {
@@ -48,17 +53,17 @@ static inline void adbus_latch_word_internal(uint16_t word, uint32_t ale_pin_mas
 //==============================================================================
 
 void adbus_set_direction(bool output) {
+    if (s_adbus_is_output == output) return;  // already configured, skip
+
     if (output) {
-        // Set all AD bus pins to SIO function and disable pulls for output.
         for (int i = 0; i < N64_ADBUS_PIN_COUNT; ++i) {
             uint pin = N64_ADBUS_PIN_START + i;
             gpio_set_function(pin, GPIO_FUNC_SIO);
             gpio_disable_pulls(pin);
         }
         sio_hw->gpio_oe_set = N64_ADBUS_GPIO_MASK;
-        sio_hw->gpio_clr = N64_ADBUS_GPIO_MASK; // Set bus low initially
+        sio_hw->gpio_clr    = N64_ADBUS_GPIO_MASK;
     } else {
-        // Set all AD bus pins to SIO function and enable pull-ups for input.
         for (int i = 0; i < N64_ADBUS_PIN_COUNT; ++i) {
             uint pin = N64_ADBUS_PIN_START + i;
             gpio_set_function(pin, GPIO_FUNC_SIO);
@@ -66,6 +71,8 @@ void adbus_set_direction(bool output) {
         }
         sio_hw->gpio_oe_clr = N64_ADBUS_GPIO_MASK;
     }
+
+    s_adbus_is_output = output;
 }
 
 
@@ -81,7 +88,7 @@ bool adbus_init(void) {
         gpio_set_dir(control_pins[i], GPIO_OUT);
         gpio_put(control_pins[i], 1); // Set HIGH (inactive state for all lines)
     }
-
+    s_adbus_is_output = true;   // force adbus_set_direction to run unconditionally
     adbus_set_direction(false);
     return true;
 }

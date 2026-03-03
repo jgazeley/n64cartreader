@@ -10,6 +10,7 @@
 #define UTILS_BYTESWAP_H
 
 #include <stdint.h> // For uint16_t, uint32_t, uint64_t
+#include <stddef.h> // for size_t
 
 /**
  * @brief Swaps the byte order of a 16-bit unsigned integer.

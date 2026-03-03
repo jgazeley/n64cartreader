@@ -19,7 +19,7 @@
  */
 typedef struct {
     size_t      argc;    /**< Count of arguments (excluding the command name) */
-    const char *argv[];  /**< NULL-terminated array of C-string pointers */
+    const char **argv;  /**< double pointer */
 } cli_args_t;
 
 /**

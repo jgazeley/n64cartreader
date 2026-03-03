@@ -2,7 +2,7 @@
 //0xFF    Reset & info  N64 Cartridge    1        3
 //0x04    Read EEPROM   N64 Cartridge    2        8
 //0x05    Write EEPROM  N64 Cartridge    10       1
-
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -135,9 +135,13 @@ void __time_critical_func(InitEeprom)(uint dataPin)
     // Check response
     uint32_t buffer[3];
     buffer[0] = GetInputWithTimeout();
+    printf("DEBUG joybus: buffer[0] = 0x%08X\n", (unsigned)buffer[0]);
+    
     if (buffer[0] == 0) {
         buffer[1] = pio_sm_get_blocking(pio, 0);
         buffer[2] = pio_sm_get_blocking(pio, 0);
+        printf("DEBUG joybus: buffer[1] = 0x%08X, buffer[2] = 0x%08X\n", 
+               (unsigned)buffer[1], (unsigned)buffer[2]);
 
         // Determine the size of the EEPROM.
         if (buffer[1] == 0x80) {

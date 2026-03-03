@@ -7,6 +7,7 @@
 #include "n64/bus/joybus.h"
 #include "n64/devices/gamepak.h"
 
+void build_cart_info(void);
 
 /**
  * @brief Registers the N64 plugin's commands with the CLI core.

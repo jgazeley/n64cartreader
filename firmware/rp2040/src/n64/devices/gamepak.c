@@ -9,11 +9,11 @@
 #include "n64/bus/joybus.h"     // For save game access
 
 #include "pico/stdlib.h"        // For sleep_ms, etc.
-#include "tusb.h"
+//#include "tusb.h"             // < legacy, no longer needed?
 
 #include <string.h>             // For memset, memcpy
 #include <stdio.h>              // for printf() ///## DEBUG ##///
-#include <stdlib.h>
+//#include <stdlib.h>           // < for malloc/free, no longer used?
 
 
 //==============================================================================
@@ -24,16 +24,24 @@ static n64_gamepak_info_t s_gamepak_info;
 static uint8_t s_save_page_buffer[N64_SAVE_PAGE_BUFFER_SIZE];
 static uint32_t s_golden_header_value = 0; // For hot-swap detection
 
-static bool flashram_program_page(uint32_t byte_addr, const uint8_t data[FLASHRAM_PAGE_SIZE]);
+bool flashram_program_page(uint32_t byte_addr, const uint8_t data[FLASHRAM_PAGE_SIZE]);
 
 //==============================================================================
 // Private Helper Functions
 //==============================================================================
 
-// static void gamepak_send_flashram_command(uint32_t cmd);
+// Private — called once during init, does the destructive probe
+static bool _gamepak_probe_sram(void) {
+    uint16_t test_val = 0x5A5A;
+    uint32_t addr = N64_SRAM_BASE;
 
-bool gamepak_read_rom_bytes(uint32_t rom_address, uint8_t* buffer, size_t length);
-// static bool flashram_program_page(uint32_t byte_addr, const uint8_t data[FLASHRAM_PAGE_SIZE]);
+    uint16_t backup = gamepak_read_sram_word(addr);
+    gamepak_write_sram_word(addr, test_val);
+    uint16_t verify = gamepak_read_sram_word(addr);
+    gamepak_write_sram_word(addr, backup);
+
+    return (verify == test_val);
+}
 
 /**
  * @brief  Detects the N64 ROM size by checking for mirrored data.
@@ -81,31 +89,39 @@ static uint32_t _gamepak_detect_rom_size(void)
  * and save_size_bytes fields in the s_gamepak_info struct.
  */
 static void _gamepak_detect_and_load_save_media(void) {
-    // 1. Default to no save type before probing.
     s_gamepak_info.save_type = N64_SAVE_TYPE_NONE;
     s_gamepak_info.save_size_bytes = 0;
-    memset(s_save_page_buffer, 0, N64_SAVE_PAGE_BUFFER_SIZE);
+    memset(s_save_page_buffer, 0xFF, N64_SAVE_PAGE_BUFFER_SIZE);
 
-    // 2. Probe for save types in a specific order.
-
-    // --- Probe for SRAM ---
-    if (gamepak_has_sram()) {
+    //printf("DEBUG: entering save detection\n");
+    if (_gamepak_probe_sram()) {
+        //printf("DEBUG: SRAM probe returned true\n");
         s_gamepak_info.save_type = N64_SAVE_TYPE_SRAM;
         s_gamepak_info.save_size_bytes = N64_SRAM_SIZE;
-        // Read the first page using a relative offset for consistency.
-        gamepak_read_sram_bytes(0, s_save_page_buffer, N64_SAVE_PAGE_BUFFER_SIZE);
-        return; // Found it, we're done.
+        gamepak_read_sram_bytes(N64_SRAM_BASE, s_save_page_buffer, N64_SAVE_PAGE_BUFFER_SIZE);
+        printf("SRAM detected and initialized.\n");
+        return;
     }
-
+    //printf("DEBUG: SRAM not found, trying EEPROM\n");
+    size_t detected_eeprom_size = joybus_get_eeprom_size();
+    //printf("DEBUG: joybus_get_eeprom_size() = %u\n", (unsigned)detected_eeprom_size);
     // --- Probe for EEPROM ---
-    if (gamepak_has_eeprom()) {
-        // The specific size (4K or 16K) is set within the gamepak_init/has_eeprom
-        // logic, so we just retrieve the final result here.
-        s_gamepak_info.save_type = gamepak_get_save_type();
-        s_gamepak_info.save_size_bytes = gamepak_get_save_size();
-        gamepak_read_eeprom_bytes(0, s_save_page_buffer, N64_SAVE_PAGE_BUFFER_SIZE);
-        return; // Found it, we're done.
-    }
+
+        if (detected_eeprom_size > 0) {
+            
+            // Map the physical size back to our enum
+            if (detected_eeprom_size == 512) {
+                s_gamepak_info.save_type = N64_SAVE_TYPE_EEPROM_4K;
+            } else {
+                s_gamepak_info.save_type = N64_SAVE_TYPE_EEPROM_16K;
+            }
+            
+            s_gamepak_info.save_size_bytes = detected_eeprom_size;
+            
+            // Pre-load the first chunk of save data into the buffer
+            gamepak_read_eeprom_bytes(0, (uint8_t*)s_save_page_buffer, N64_SAVE_PAGE_BUFFER_SIZE);
+            return; // Found it, we're done.
+        }
 
     // --- Probe for FlashRAM ---
     if (gamepak_has_flashram()) {
@@ -118,22 +134,18 @@ static void _gamepak_detect_and_load_save_media(void) {
 }
 
 static void _gamepak_refresh_save_page_cache(void) {
-    // Check the detected save type and call the appropriate read function.
     switch (s_gamepak_info.save_type) {
         case N64_SAVE_TYPE_SRAM:
             gamepak_read_sram_bytes(N64_SRAM_BASE, s_save_page_buffer, N64_SAVE_PAGE_BUFFER_SIZE);
             break;
-        
         case N64_SAVE_TYPE_EEPROM_4K:
         case N64_SAVE_TYPE_EEPROM_16K:
-            // The address is 0 for EEPROM reads, and we read the first page.
             gamepak_read_eeprom_bytes(0, s_save_page_buffer, N64_SAVE_PAGE_BUFFER_SIZE);
             break;
-
-        // Add cases for FlashRAM etc. here in the future
-        
+        case N64_SAVE_TYPE_FLASHRAM:
+            gamepak_read_flashram_bytes(0, s_save_page_buffer, N64_SAVE_PAGE_BUFFER_SIZE);
+            break;
         default:
-            // No detectable/writable save type, do nothing.
             break;
     }
 }
@@ -154,10 +166,10 @@ bool gamepak_init(void) {
     }
 
     // Reset the cartridge bus.
-    adbus_assert_reset(true);
-    sleep_ms(5);
-    adbus_assert_reset(false);
-    sleep_ms(10);
+    // adbus_assert_reset(true);
+    // sleep_ms(5);
+    // adbus_assert_reset(false);
+    // sleep_ms(10);
 
     // Read the full 64-byte header from the ROM.
     if (!gamepak_read_rom_bytes(N64_ROM_BASE, (uint8_t*)&s_gamepak_info.header, N64_HEADER_SIZE)) {
@@ -171,40 +183,40 @@ bool gamepak_init(void) {
         return false; // No cartridge is present.
     }
 
-    // --- NEW: Detect and store ROM Size ---
-    // s_gamepak_info.rom_size_bytes = _gamepak_detect_rom_size();
-{
-    uint32_t rom_sz = 0;
+    s_golden_header_value = first_dword;
 
-    /* Grab the 4-byte ASCII game-ID from the header (offset 0x3B) */
+    // --- STEP 2: Detect ROM size ---
+    // TEMPORARY STUB: Only a handful of known game IDs are hard-coded here for
+    // early testing. This is NOT a complete lookup table. Any unrecognized cart
+    // falls through to _gamepak_detect_rom_size(), which probes for mirrors and
+    // should work correctly for all standard retail carts. Once mirror detection
+    // is confirmed reliable across a wider range of carts, the hard-coded IDs
+    // below can be removed entirely, or replaced with a proper ID->size table
+    // if faster init time becomes a priority.
     char game_id[5];
     memcpy(game_id, s_gamepak_info.header.game_id, 4);
     game_id[4] = '\0';
 
-    /* Hard-coded sizes for the three carts you want to test */
-    if      (memcmp(game_id, "NGEE", 4) == 0)            /* GoldenEye 007  */
-        rom_sz = 12u * 1024 * 1024;                      /* 12 MiB (96 Mbit) */
-    else if (memcmp(game_id, "CZLE", 4) == 0 ||          /* Ocarina of Time */
-             memcmp(game_id, "NZSE", 4) == 0)            /* Majora’s Mask   */
-        rom_sz = 32u * 1024 * 1024;                      /* 32 MiB (256 Mbit) */
+    if (memcmp(game_id, "NGEE", 4) == 0)
+        s_gamepak_info.rom_size_bytes = 12u * 1024 * 1024;       // GoldenEye 007
+    else if (memcmp(game_id, "CZLE", 4) == 0 ||
+             memcmp(game_id, "NZSE", 4) == 0)
+        s_gamepak_info.rom_size_bytes = 32u * 1024 * 1024;       // OoT / Majora's Mask
     else
-        rom_sz = _gamepak_detect_rom_size();             /* fallback probe  */
+        s_gamepak_info.rom_size_bytes = _gamepak_detect_rom_size();
 
-    s_gamepak_info.rom_size_bytes = rom_sz;
-}
-
-    // --- STEP 2: JOYBUS (SAVE) INITIALIZATION ---
+    // --- STEP 3: JOYBUS (SAVE) INITIALIZATION ---
     // NOW that we have a valid header and all ROM reading is done, it is safe
     // to initialize the Joybus PIO, which can be electrically noisy.
     if (!joybus_init()) {
-        // If joybus fails, that's okay. We still have a valid ROM, just no save info.
+        //printf("DEBUG: joybus_init() FAILED\n");
         s_gamepak_info.save_type = N64_SAVE_TYPE_NONE;
     } else {
-        // Joybus is up, now we can safely probe for save media.
+        //printf("DEBUG: joybus_init() OK\n");
         _gamepak_detect_and_load_save_media();
     }
 
-    // --- STEP 3: FINALIZE ---
+    // --- STEP 4: FINALIZE ---
     // We have a valid ROM header, so mark the GamePak info as valid.
     s_gamepak_info.valid = true;
     return true;
@@ -340,21 +352,9 @@ bool gamepak_read_rom_bytes(uint32_t rom_address, uint8_t* buffer, size_t length
 // SRAM Access Functions
 //==============================================================================
 
+// Public — just checks what was detected at init time
 bool gamepak_has_sram(void) {
-    const uint32_t base = N64_SRAM_BASE;
-    const uint32_t test_addr = base + 0x100;
-    const uint16_t magic = 0x5A5A;
-
-    if (gamepak_read_sram_word(base) == 0xFFFF) {
-        return false;
-    }
-
-    uint16_t orig = gamepak_read_sram_word(test_addr);
-    gamepak_write_sram_word(test_addr, magic);
-    uint16_t readback = gamepak_read_sram_word(test_addr);
-    gamepak_write_sram_word(test_addr, orig);
-
-    return (readback == magic);
+    return (s_gamepak_info.save_type == N64_SAVE_TYPE_SRAM);
 }
 
 uint16_t gamepak_read_sram_word(uint32_t sram_address) {
@@ -402,14 +402,8 @@ bool gamepak_write_sram_bytes(uint32_t sram_address, const uint8_t* buffer, size
 //==============================================================================
 
 bool gamepak_has_eeprom(void) {
-    // Get the save type that was determined during gamepak_init().
-    n64_save_type_t save_type = gamepak_get_save_type();
-
-    if (save_type == N64_SAVE_TYPE_EEPROM_4K || save_type == N64_SAVE_TYPE_EEPROM_16K) {
-        return true;
-    }
-
-    return false;
+    // Actually ask the joybus layer if the hardware probe found anything!
+    return (joybus_get_eeprom_size() > 0);
 }
 
 bool gamepak_read_eeprom_bytes(uint32_t address, uint8_t* buffer, size_t length) {
@@ -495,6 +489,9 @@ bool gamepak_write_and_verify_eeprom_bytes(uint32_t address,
 }
 
 
+
+// NOTE: tud_task() removed. Entire FlashRAM write/erase path is being
+// rewritten. Do not invest time fixing USB servicing in these functions.
 //==============================================================================
 // FlashRAM Access Functions (Stubs for Future Expansion)
 //==============================================================================
@@ -507,21 +504,24 @@ static void gamepak_send_flashram_command(uint32_t cmd) {
     uint16_t low  = (uint16_t)(cmd & 0xFFFFu);
     uint16_t high = (uint16_t)(cmd >> 16);
 
-    // Drive bus for write
     adbus_set_direction(true);
-    // Select command register
+    
+    // ONLY LATCH ONCE!
     adbus_latch_address(FLASHRAM_CMD_REG);
-    // Send high half, then low half
     adbus_write_word(high);
     adbus_write_word(low);
-    // Release bus for read
+    
     adbus_set_direction(false);
 }
 
-static inline void flashram_set_addr(uint32_t byte_addr)
-{
-    /* 0x4B00_aaaa (aaaa = word address) */
-    gamepak_send_flashram_command(0x4B000000u | (((byte_addr) >> 1) & 0xFFFFu));
+static inline void flashram_set_addr(uint32_t byte_addr) {
+    // Strip 0x08000000 off the absolute address
+    uint32_t offset = byte_addr - N64_SRAM_BASE; 
+    
+    // Divide by 128 bytes to get the absolute page number (0 to 1023)
+    uint16_t page_idx = (uint16_t)((offset >> 7) & 0xFFFFu); 
+    
+    gamepak_send_flashram_command(FLASHRAM_ERASE_CMD | page_idx);
 }
 
 
@@ -531,37 +531,37 @@ static inline void flashram_set_addr(uint32_t byte_addr)
  *
  * @return true if the chip became ready, false on timeout.
  */
-const uint8_t FLASHRAM_IDLE_STATUS[8] = { 0x11, 0x11, 0x80, 0x01, 0x00, 0xC2, 0x00, 0x1E };
 static bool gamepak_flashram_wait_ready(void) {
-    // A buffer to hold the 8-byte status read from the chip
-    uint8_t current_status[8];
-
-    // Set a generous timeout to avoid infinite loops
-    for (int i = 0; i < 500; i++) {
-        // 1. Tell the chip to enter status register mode.
-        gamepak_send_flashram_command(FLASHRAM_SET_STATUS_MODE_CMD);
-
-        // 2. Latch the base address to read the status register itself.
+    uint32_t timeout = 0;
+    // The known idle signature for Majora's Mask (Macronix)
+    const uint8_t mx_idle[] = {0x11, 0x11, 0x80, 0x01, 0x00, 0xC2, 0x00, 0x1E};
+    
+    while (timeout < 1000) { // Up to 1000ms timeout
+        gamepak_send_flashram_command(FLASHRAM_SET_STATUS_MODE_CMD); // 0xE1
+        sleep_us(50);
+        
+        adbus_set_direction(true);
         adbus_latch_address(N64_SRAM_BASE);
-
-        // 3. Read the full 8-byte status block.
-        for (int j = 0; j < 8; j += 2) {
-            uint16_t word = adbus_read_word();
-            current_status[j]     = (uint8_t)(word >> 8);
-            current_status[j + 1] = (uint8_t)(word & 0xFF);
+        adbus_set_direction(false);
+        
+        bool match = true;
+        for (int i = 0; i < 8; i += 2) {
+            uint16_t w = adbus_read_word();
+            uint8_t hi = (uint8_t)(w >> 8);
+            uint8_t lo = (uint8_t)(w & 0xFF);
+            if (hi != mx_idle[i] || lo != mx_idle[i+1]) {
+                match = false;
+            }
         }
-
-        // 4. Compare the entire block to the known "idle" state.
-        if (!memcmp(current_status, FLASH_IDLE_MX1100, 8) ||
-            !memcmp(current_status, FLASH_IDLE_MX1101, 8) ||
-            !memcmp(current_status, FLASH_IDLE_MN63F81, 8))
-            return true;
-
-        // 5. CRITICAL: Wait before trying again.
+        
+        if (match) {
+            return true; // The chip is answering with its ID, it is IDLE!
+        }
+        
         sleep_ms(1);
+        timeout++;
     }
-
-    return false; // Timeout occurred
+    return false;
 }
 
 bool gamepak_has_flashram(void) {
@@ -598,8 +598,12 @@ bool gamepak_has_flashram(void) {
     //     id_block[0], id_block[1], id_block[2], id_block[3],
     //     id_block[4], id_block[5], id_block[6], id_block[7]);
 
-    // 5. Send a final reset to leave the chip in a clean state.
-    gamepak_send_flashram_command(FLASHRAM_RESET_CMD);
+    // 5. Send READ ARRAY to drop the chip out of Status Mode!
+    // (Do NOT use RESET, as the hardware ignores it here)
+    gamepak_send_flashram_command(FLASHRAM_READ_ARRAY_CMD); 
+    
+    // Give it a tiny moment to switch states
+    sleep_us(50);
 
     // 6. Check the manufacturer and device ID against known values.
     // The device ID is the last byte of the block.
@@ -617,6 +621,7 @@ bool gamepak_has_flashram(void) {
             return false;
     }
 }
+
 bool gamepak_read_flashram_bytes(uint32_t address, uint8_t* buffer, size_t length) {
     if (!buffer || (length % 2) != 0) {
         return false;
@@ -673,10 +678,13 @@ bool gamepak_write_flashram_bytes(uint32_t addr,
     /* 1. identify 128-KB block that covers [addr, addr+len) */
     uint32_t block_base = addr & ~(FLASHRAM_BLOCK_SIZE - 1);
 
-    /* 2. allocate scratch (once) */
-    static uint8_t *blk = NULL;
-    if (!blk) blk = malloc(FLASHRAM_BLOCK_SIZE);
-    if (!blk) return false;
+    // static uint8_t *blk = NULL;
+    //     if (!blk) blk = malloc(FLASHRAM_BLOCK_SIZE);
+    //     if (!blk) return false;
+    // Static buffer: 128KB fixed allocation — intentional and visible in the map file.
+    // With FLASHRAM_BLOCK_SIZE = 128KB and total RP2040 RAM = 264KB, this is a
+    // significant but necessary cost for read-modify-write operations on FlashRAM.             < Claude code suggestion, review?
+    static uint8_t blk[FLASHRAM_BLOCK_SIZE];
 
     /* 3. read existing block */
     if (!gamepak_read_flashram_bytes(block_base, blk, FLASHRAM_BLOCK_SIZE))
@@ -717,57 +725,94 @@ bool gamepak_write_flashram_sector(uint32_t address, const uint8_t *buffer)
     return true;
 }
 
-bool flashram_erase_block(uint32_t byte_addr)          /* 128 KiB-aligned */
-{
-    for (uint32_t off = 0; off < 0x20000u; off += 0x4000u)   /* eight banks */
-    {
-        uint32_t bank_base = byte_addr + off;
+bool flashram_program_page(uint32_t byte_addr, const uint8_t data[FLASHRAM_PAGE_SIZE]) {
+    // 1. Force IDLE state
+    gamepak_send_flashram_command(FLASHRAM_SET_STATUS_MODE_CMD); 
+    gamepak_send_flashram_command(FLASHRAM_READ_ARRAY_CMD); // 0xF0
+    sleep_us(50);
+    
+    // 2. Setup Addressing - DO NOT MASK WITH 0x7F
+    // Macronix needs the absolute page index (0 to 1023)
+    uint32_t offset = byte_addr - N64_SRAM_BASE;
+    uint16_t absolute_page_idx = (uint16_t)(offset >> 7); 
 
-        /* — leave status-reg mode from the previous cycle — */
-        gamepak_send_flashram_command(0xFF000000u);      /* RESET  */
-        sleep_us(20);                                    /* ≥20 µs */
+    // 3. Set Bank and Program Mode
+    flashram_set_addr(byte_addr); 
+    gamepak_send_flashram_command(FLASHRAM_PROGRAM_CMD); // 0xB4
+    sleep_us(10); // Sanni uses a tiny gap here for the FIFO to prep
 
-        /* — select this 16 KiB bank — */
-        flashram_set_addr(bank_base);
-
-        tud_task();                                      /* USB-keepalive */
-
-        /* — arm + execute erase — */
-        gamepak_send_flashram_command(0x78000000u);      /* ERASE MODE */
-        gamepak_send_flashram_command(0xD2000000u);      /* EXECUTE    */
-
-        if (!gamepak_flashram_wait_ready()) return false;
-    }
-    return true;     /* left in read-array mode after last RESET */
-}
-
-static bool flashram_program_page(uint32_t byte_addr,
-                                  const uint8_t data[FLASHRAM_PAGE_SIZE])
-{
-    gamepak_send_flashram_command(0xFF000000u);   /* RESET – exit status  */
-    sleep_us(20);
-    /* Page index inside its 16-KiB bank (must be 0-127)                */
-    uint16_t page_idx = (byte_addr >> 7) & 0x7Fu;        /* mask to 7 bits */
-
-    flashram_set_addr(byte_addr);                        /* << THE FIX    */
-    tud_task();
-    gamepak_send_flashram_command(FLASHRAM_PROGRAM_CMD); /* 0xB400_0000   */
-
-    /* Burst 128 B payload into data port                               */
+    // 4. Data Transfer
     adbus_set_direction(true);
-    adbus_latch_address(N64_SRAM_BASE);
-    for (int i = 0; i < FLASHRAM_PAGE_SIZE; i += 2)
+    for (int i = 0; i < FLASHRAM_PAGE_SIZE; i += 2) {
+        // Latching every word is slow, but prevents FIFO desync
+        adbus_latch_address(N64_SRAM_BASE + i);
         adbus_write_word(((uint16_t)data[i] << 8) | data[i + 1]);
+        __asm volatile("nop\nnop\nnop\nnop\n"); 
+    }
     adbus_set_direction(false);
 
-    /* Tell the chip which of the 128 pages in this bank to burn         */
-    gamepak_send_flashram_command(FLASHRAM_PROGRAM_OFFSET_CMD | page_idx);
-    gamepak_send_flashram_command(FLASHRAM_EXECUTE_CMD);
+    // 5. Commit the Write
+    // Use the ABSOLUTE page index here
+    gamepak_send_flashram_command(FLASHRAM_PROGRAM_OFFSET_CMD | absolute_page_idx);
+    gamepak_send_flashram_command(FLASHRAM_EXECUTE_CMD); // 0xD2
 
+    // 6. Wait for Hardware
+    sleep_us(500);
     if (!gamepak_flashram_wait_ready()) return false;
 
-    /* Quick verify                                                     */
+    // 7. Cleanup & Verify
+    gamepak_send_flashram_command(FLASHRAM_READ_ARRAY_CMD); // Exit Status Mode
+    sleep_us(50);
+
     uint8_t verify[FLASHRAM_PAGE_SIZE];
-    return gamepak_read_flashram_bytes(byte_addr, verify, FLASHRAM_PAGE_SIZE) &&
-           memcmp(data, verify, FLASHRAM_PAGE_SIZE) == 0;
+    if (!gamepak_read_flashram_bytes(byte_addr, verify, FLASHRAM_PAGE_SIZE)) return false;
+    
+    return memcmp(data, verify, FLASHRAM_PAGE_SIZE) == 0;
+}
+
+//     return false; // Timed out
+// }
+bool flashram_erase_block(uint32_t byte_addr) {
+    (void)byte_addr; 
+
+    // 1. Initial Reset/Execute sequence to clear state
+    gamepak_send_flashram_command(FLASHRAM_EXECUTE_CMD); // EXECUTE
+    sleep_ms(10);
+    gamepak_send_flashram_command(FLASHRAM_SET_STATUS_MODE_CMD); // STATUS
+    sleep_ms(10);
+
+    // 2. Erase each 16KB bank individually
+    for (uint32_t bank = 0; bank < 8; bank++) {
+        // --- THE FIX: MACRONIX BANK ERASE COMMAND ---
+        // Macronix expects the bank index at bits 20-22, ORed with 0x4B
+        // Command becomes: 0x4B000000 | (bank << 20) | 0x3FFF
+        // Wait: Sanni uses 0x4B000000 | (bank << 7) | 0x7F
+        
+        // Let's use the absolute Sanni-verified command for Macronix:
+        uint32_t bank_cmd = FLASHRAM_ERASE_CMD | ((bank << 7) | 0x7F);
+        
+        gamepak_send_flashram_command(bank_cmd);
+        sleep_ms(1);
+        
+        gamepak_send_flashram_command(FLASHRAM_ERASE_MODE_CMD); // ERASE MODE
+        sleep_ms(1);
+        
+        gamepak_send_flashram_command(FLASHRAM_EXECUTE_CMD); // EXECUTE
+        
+        if (!gamepak_flashram_wait_ready()) {
+            return false;
+        }
+    }
+    
+    gamepak_send_flashram_command(FLASHRAM_READ_ARRAY_CMD); // READ ARRAY
+    return true;
+}
+
+void gamepak_bus_warmup(void) {
+    // Force the bus into a known state by driving it LOW 
+    // and cycling the latches once without a chip select.
+    adbus_set_direction(true);
+    sio_hw->gpio_clr = N64_ADBUS_GPIO_MASK; 
+    adbus_latch_address(N64_SRAM_BASE);
+    adbus_set_direction(false);
 }

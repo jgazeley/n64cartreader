@@ -34,4 +34,7 @@ bool packet_stream(const uint8_t *data, size_t total);
 /** Stream a 0–255 repeating test pattern of `total` bytes */
 bool packet_stream_pattern(size_t total);
 
+bool packet_send_reliable(const uint8_t *payload, uint16_t len, uint8_t seq);
+bool packet_receive_reliable(uint8_t *buffer, uint16_t expected_len, uint8_t expected_seq);
+
 #endif // UTILS_PACKET_H

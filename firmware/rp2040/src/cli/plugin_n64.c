@@ -9,9 +9,11 @@
 #include "cli/plugin_n64.h"
 #include "cli/io.h"
 #include "utils/format.h"
+#include "utils/packet.h"
+#include "hardware/sync.h"
 
+#include "n64/bus/adbus.h"
 #include "n64/devices/gamepak.h"
-#include "tusb.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -21,12 +23,12 @@
 //------------------------------------------------------------------------------
 // Forward Declarations (Private Command Handlers)
 //------------------------------------------------------------------------------
-// --- Private Helper Functions ---
-static bool _gamepak_check_and_refresh(void);
 
 // --- Implemented CLI Command Handlers ---
+// static bool cmd_n64_init(const cli_args_t *args);
 static bool cmd_n64_get_info(const cli_args_t *args);
 static bool cmd_n64_hexdump_header(const cli_args_t *args);
+static bool cmd_n64_hexdump_raw(const cli_args_t *args);
 static bool cmd_n64_hexdump_save(const cli_args_t *args);
 static bool cmd_n64_hexdump_eeprom(const cli_args_t *args);
 static bool cmd_n64_hexdump_sram(const cli_args_t *args);
@@ -34,13 +36,23 @@ static bool cmd_n64_hexdump_fram(const cli_args_t *args);
 static bool cmd_n64_write32_sram(const cli_args_t *args);
 static bool cmd_n64_write32_eeprom(const cli_args_t *args);
 static bool cmd_n64_write32_fram(const cli_args_t *args);
-static bool cmd_n64_fullwrite_fram(const cli_args_t *args);
-static bool cmd_n64_erase_fram(const cli_args_t *args);
+static bool cmd_n64_flash_diag(const cli_args_t *args);
+static bool cmd_n64_repro_id(const cli_args_t *args);
+static bool cmd_n64_export_save(const cli_args_t *args);
+static bool cmd_n64_import_save(const cli_args_t *args);
+
+static bool cmd_n64_dump_rom(const cli_args_t *args);
+static bool cmd_n64_export_sram(const cli_args_t *args);
+static bool cmd_n64_export_eeprom(const cli_args_t *args);
+static bool cmd_n64_import_sram(const cli_args_t *args);
+static bool cmd_n64_import_eeprom(const cli_args_t *args);
+static bool cmd_n64_export_flashram(const cli_args_t *args);
+static bool cmd_n64_import_flashram(const cli_args_t *args);
 
 // --- Stubs for Future/Unimplemented Commands ---
-static bool cmd_n64_shotgun(const cli_args_t *args);
 static bool cmd_n64_verify_crc(const cli_args_t *args);
-static bool n64_header_ascii(const cli_args_t *args); // Consider renaming to cmd_n64_view_header_ascii for consistency
+// static bool cmd_n64_shotgun(const cli_args_t *args);
+// static bool n64_header_ascii(const cli_args_t *args); // Consider renaming to cmd_n64_view_header_ascii for consistency
 
 //------------------------------------------------------------------------------
 // Command Registration
@@ -48,16 +60,28 @@ static bool n64_header_ascii(const cli_args_t *args); // Consider renaming to cm
 
 static void init_n64_commands(void) {
     static const cli_command_t n64_cmds[] = {
-        { "n64_dump_header",  cmd_n64_hexdump_header,           "View the first 64 bytes of the ROM in hex"    },
-        { "n64_get_info",     cmd_n64_get_info,                 "Initialize and display cartridge info"        },
-        { "n64_dump_save",    cmd_n64_hexdump_save,             "View the save data (if it exists) in hex"          },       
-        // { "n64_dump_sram",    cmd_n64_hexdump_sram,             "View the SRAM (if it exists) in hex"          },
-        // { "n64_dump_eeprom",  cmd_n64_hexdump_eeprom,           "View the EEPROM (if it exists) in hex"        },
-        // { "n64_dump_fram",    cmd_n64_hexdump_fram,             "View the Flashram (if it exists) in hex"        },
-        // { "n64_write32_sram", cmd_n64_write32_sram,             "Write & verify a 32-byte pattern to SRAM"     },
-        { "n64_write32_fram", cmd_n64_write32_fram,             "Write & verify a 32-byte pattern to FRAM"     },
-        { "n64_writeall_fram", cmd_n64_fullwrite_fram,             "Write & verify entire FRAM"     },
-        { "n64_erase_fram", cmd_n64_erase_fram,             "Erase entire FRAM"     },
+        // { "n64_cart_init",          cmd_n64_init,                     "Initialize the game cartridge"                   },
+        { "n64_view_header",        cmd_n64_hexdump_header,           "View the first 64 bytes of the ROM in hex"       },
+        { "n64_cart_info",          cmd_n64_get_info,                 "Initialize and display cartridge info"           },
+        { "n64_dump_raw",           cmd_n64_hexdump_raw,              "View the save data in raw hex, no formatting"    },  
+        { "n64_view_save",          cmd_n64_hexdump_save,             "View the save data (if it exists) in hex"        },       
+        // { "n64_view_sram",          cmd_n64_hexdump_sram,             "View the SRAM (if it exists) in hex"             },
+        // { "n64_view_eeprom",        cmd_n64_hexdump_eeprom,           "View the EEPROM (if it exists) in hex"           },
+        // { "n64_view_fram",          cmd_n64_hexdump_fram,             "View the Flashram (if it exists) in hex"         },
+        { "n64_write32_eeprom",     cmd_n64_write32_eeprom,           "Write & verify a 32-byte pattern to EEPROM"      },
+        { "n64_write32_fram",       cmd_n64_write32_fram,             "Write & verify a 32-byte pattern to FRAM"        },
+        { "n64_write32_sram",       cmd_n64_write32_sram,             "Write & verify a 32-byte pattern to SRAM"        },
+        { "n64_dump_rom",           cmd_n64_dump_rom,                 "Dump full ROM to PC over serial"                 },
+        { "n64_export_save",        cmd_n64_export_save,              "Export save to PC (auto-detect type)"            },
+        { "n64_import_save",        cmd_n64_import_save,              "Import save from PC (auto-detect type)"          },
+        // { "n64_export_sram",        cmd_n64_export_sram,              "Export full SRAM save to PC"                     },
+        // { "n64_export_eeprom",      cmd_n64_export_eeprom,            "Export full EEPROM save to PC"                   },
+        // { "n64_export_flashram",    cmd_n64_export_flashram,          "Export full Flashram save to PC"                   },
+        // { "n64_import_sram",        cmd_n64_import_sram,              "Import save file from PC to SRAM"                },
+        // { "n64_import_eeprom",      cmd_n64_import_eeprom,            "Import save file from PC to EEPROM"              },
+        // { "n64_import_flashram",    cmd_n64_import_flashram,          "Import save file from PC to Flashram"            },
+        { "n64_flash_diag",         cmd_n64_flash_diag,               "Raw FlashRAM bus diagnostic (no gamepak code)"   },
+        { "n64_repro_id",           cmd_n64_repro_id,                 "Identify repro flash chip on ROM bus"            },
         // { "controller_test",  cmd_n64_test_controller,          "Probe the Joybus for a controller"            },
         // { "button_test",      cmd_n64_test_buttons,             "Read raw data from the controller"            },
         // { "shotgun",      cmd_n64_shotgun,              "Spew data from the ROM (header over and over))"   },
@@ -72,22 +96,24 @@ static void init_n64_commands(void) {
 //------------------------------------------------------------------------------
 
 static const menu_item_t n64_menu_items[] = {
-    { 'I', "ID:   Cart Information",           "n64_get_info",         NULL  },
-    { 'H', "VIEW: Raw Header",                 "n64_dump_header",      NULL  },
-    { 'S', "VIEW: Save Data",                       "n64_dump_save",        NULL  },
-    // { 'S', "VIEW: SRAM",                       "n64_dump_sram",        NULL  },
-    // { 'E', "VIEW: EEPROM",                     "n64_dump_eeprom",      NULL  },
-    // { 'F', "VIEW: FRAM",                       "n64_dump_fram",        NULL  },
-    // { 'X', "SPEW: Shotgun Bytes to stdout",    "shotgun",              NULL  },
-    // { 'U', "DUMP: SRAM (to stdout)",           "debug_dump_sram",      NULL  },
-    // { 'P', "DUMP: EEPROM (to stdout)",         "debug_dump_eeprom",    NULL  },
-    { 'W', "TEST: Write 32B to FRAM",          "n64_write32_fram",     NULL  },
-    { 'A', "TEST: Write entire FRAM",          "n64_writeall_fram",     NULL  },
-    { 'E', "TEST: Erase FRAM",          "n64_erase_fram",     NULL  },
-    // { 'C', "TEST: Controller Test",            "controller_test",      NULL  },
-    // { 'B', "TEST: Button Test",                "button_test",          NULL  },
-    // { 'X', "TEST: Write 64B to EEPROM",        "debug_write32_eeprom", NULL  },
-    { 'X', "Back",                             NULL,                   NULL  },
+    { 'I', "ID:   Cart Information",                    "n64_cart_info",         NULL  },
+    { 'H', "VIEW: Raw Header",                          "n64_view_header",      NULL  },
+    { 'S', "VIEW: Save Data",                           "n64_view_save",        NULL  },
+    // { 'E', "VIEW: EEPROM",                              "n64_view_eeprom",      NULL  },
+    // { 'F', "VIEW: FRAM",                                "n64_view_fram",        NULL  },
+    // { 'R', "VIEW: SRAM",                                "n64_view_sram",        NULL  },
+    // { 'D', "DUMP: ROM to PC",                           "n64_dump_rom",         NULL  },
+    // { 'O', "EXPORT: Save to PC",                        "n64_export_save",      NULL  },
+    // { 'P', "IMPORT: Save from PC",                      "n64_import_save",      NULL  },
+    // { 'G', "DIAG: Raw FlashRAM bus probe",              "n64_flash_diag",       NULL  },
+    // { 'J', "TEST: Write 32B to EEPROM",                 "n64_write32_eeprom",   NULL  },
+    // { 'W', "TEST: Write 32B to FRAM",                   "n64_write32_fram",     NULL  },
+    // { 'M', "TEST: Write 32B to SRAM",                   "n64_write32_sram",     NULL  },  
+    { 'X', "Back",                                       NULL,                  NULL  },
+    // { 'X', "SPEW: Shotgun Bytes to stdout",      "shotgun",              NULL  },  
+    // { 'E', "TEST: Erase FRAM",                   "n64_erase_fram",     NULL  },
+    // { 'C', "TEST: Controller Test",              "controller_test",      NULL  },
+    // { 'B', "TEST: Button Test",                   "button_test",          NULL  },
 };
 
 const menu_frame_t n64_menu_frame = {
@@ -110,50 +136,31 @@ void plugin_n64_register(void) {
 // Command Handlers
 //------------------------------------------------------------------------------
 
+// static bool cmd_n64_init(const cli_args_t *args) {
+//     (void)args;
+//     printf("Initializing cartridge...\n");
+//     if (!gamepak_init()) {
+//         printf("ERROR: No cartridge detected.\n");
+//         return true;
+//     }
+// //    build_cart_info();
+//  //   printf("%s\n", g_info_file_buffer);
+//     return true;
+// }
+
 static bool cmd_n64_verify_crc(const cli_args_t *args) {
     (void)args;
     printf("VERIFY CRC: not yet implemented\n");
     return true;
 }
 
-static bool _gamepak_check_and_refresh(void) {
-    // // 1. First, check if a cart was ever initialized successfully at all.
-    // // gamepak_get_info() returns NULL if the initial gamepak_init() failed.
-    // if (gamepak_get_info() == NULL) {
-    //     printf("ERROR: GamePak not initialized. Please insert a cartridge and reboot.\n");
-    //     return false;
-    // }
-
-    // // 2. If a cart WAS initialized, do a live check to see if it's still there.
-    // // gamepak_is_present() compares the live header to the one from init.
-    // if (!gamepak_is_present()) {
-    //     // If this check fails, the cart was changed or removed.
-    //     printf("\n--- Cartridge Changed or Removed ---\n");
-    //     printf("Re-scanning cartridge slot... ");
-        
-    //     // Re-run init silently to reset the driver state and find a new cart if present.
-    //     if (gamepak_init()) {
-    //         printf("New cartridge detected and initialized.\n");
-    //     } else {
-    //         printf("No valid cartridge detected.\n");
-    //     }
-        
-    //     // Instruct the user to try again, since the context has changed.
-    //     printf("Please try your command again.\n");
-    //     return false; // Tell the calling function to abort its operation.
-    // }
-
-    // // If we get here, the original cart is still present and valid.
-    return true; // Tell the calling function it's safe to proceed.
-}
-
 static bool cmd_n64_get_info(const cli_args_t *args) {
     (void)args;
 
-    // Check cartridge presence / init
-    if (!_gamepak_check_and_refresh()) {
-        return true;
-    }
+    // // Check cartridge presence / init
+    // if (!_gamepak_check_and_refresh()) {
+    //     return true;
+    // }
 
     const n64_gamepak_info_t *info = gamepak_get_info();
     const n64_gamepak_header_t *h = &info->header;
@@ -206,10 +213,10 @@ static bool cmd_n64_get_info(const cli_args_t *args) {
 static bool cmd_n64_hexdump_header(const cli_args_t *args) {
     (void)args;
     
-    // First, call the gatekeeper. If it returns false, abort.
-    if (!_gamepak_check_and_refresh()) {
-        return true; // Return true to prevent "Unknown command" error
-    }
+    // // First, call the gatekeeper. If it returns false, abort.
+    // if (!_gamepak_check_and_refresh()) {
+    //     return true; // Return true to prevent "Unknown command" error
+    // }
 
     // If the check passed, we know the cached data is valid.
     const n64_gamepak_header_t* header = gamepak_get_header();
@@ -220,13 +227,27 @@ static bool cmd_n64_hexdump_header(const cli_args_t *args) {
     return true;
 }
 
+static bool cmd_n64_hexdump_raw(const cli_args_t *args) {
+    (void)args;
+    
+    // Ensure we have a fresh pull from the SRAM chip
+    // _gamepak_refresh_save_page_cache();
+    const uint8_t* buf = gamepak_get_save_page_buffer();
+    
+    printf("--- RAW DATA START ---\n");
+    utils_format_hex_compact(buf, 512); // Dumps the first page
+    printf("--- RAW DATA END ---\n");
+    
+    return true;
+}
+
 static bool cmd_n64_hexdump_sram(const cli_args_t *args) {
     (void)args;
     
-    // First, call the gatekeeper.
-    if (!_gamepak_check_and_refresh()) {
-        return true;
-    }
+    // // First, call the gatekeeper.
+    // if (!_gamepak_check_and_refresh()) {
+    //     return true;
+    // }
 
     if (gamepak_get_save_type() != N64_SAVE_TYPE_SRAM) {
         printf("INFO: SRAM not detected on this cartridge.\n");
@@ -244,10 +265,10 @@ static bool cmd_n64_hexdump_sram(const cli_args_t *args) {
 static bool cmd_n64_hexdump_eeprom(const cli_args_t *args) {
     (void)args;
 
-    // First, call the gatekeeper.
-    if (!_gamepak_check_and_refresh()) {
-        return true;
-    }
+    // // First, call the gatekeeper.
+    // if (!_gamepak_check_and_refresh()) {
+    //     return true;
+    // }
 
     n64_save_type_t save_type = gamepak_get_save_type();
     if (save_type != N64_SAVE_TYPE_EEPROM_4K && save_type != N64_SAVE_TYPE_EEPROM_16K) {
@@ -267,10 +288,10 @@ static bool cmd_n64_hexdump_eeprom(const cli_args_t *args) {
 static bool cmd_n64_hexdump_fram(const cli_args_t *args) {
     (void)args;
 
-    // Gatekeeper: make sure we’ve probed and loaded the save page
-    if (!_gamepak_check_and_refresh()) {
-        return true;
-    }
+    // // Gatekeeper: make sure we’ve probed and loaded the save page
+    // if (!_gamepak_check_and_refresh()) {
+    //     return true;
+    // }
 
     // Only proceed if the detected save type is FlashRAM
     if (gamepak_get_save_type() != N64_SAVE_TYPE_FLASHRAM) {
@@ -296,10 +317,10 @@ static bool cmd_n64_hexdump_save(const cli_args_t *args) {
     // to the underlying functions that require it in their signature.
     (void)args;
 
-    // Ensure the cartridge is ready.
-    if (!_gamepak_check_and_refresh()) {
-        return true;
-    }
+    // // Ensure the cartridge is ready.
+    // if (!_gamepak_check_and_refresh()) {
+    //     return true;
+    // }
 
     // Get the detected save type.
     n64_save_type_t save_type = gamepak_get_save_type();
@@ -326,72 +347,6 @@ static bool cmd_n64_hexdump_save(const cli_args_t *args) {
     return true;
 }
 
-// /**
-//  * @brief Writes a 64-byte test pattern to the start of SRAM and verifies it.
-//  */
-// static bool cmd_n64_write32_sram(const cli_args_t *args) {
-//     (void)args;
-
-//     const uint32_t test_address = N64_SRAM_BASE;
-//     const size_t test_size = 64;
-
-//     // Gatekeeper check for a valid, SRAM-enabled cartridge.
-//     if (!_gamepak_check_and_refresh() || gamepak_get_save_type() != N64_SAVE_TYPE_SRAM) {
-//         printf("INFO: SRAM not detected on this cartridge. Cannot perform write test.\n");
-//         return true;
-//     }
-
-//     // --- 1. Prepare the test pattern IN A BUFFER ---
-//     uint8_t write_buffer[test_size];
-//     for (size_t i = 0; i < (test_size / 2); i++) {
-//         // Alternate between 0xDEAD and 0xBEEF for each 16-bit word
-//         uint16_t word_to_write = (i % 2 == 0) ? 0xDEAD : 0xBEEF;
-        
-//         // Place the two bytes of the word into the buffer
-//         write_buffer[i * 2]     = (uint8_t)(word_to_write >> 8); // High byte
-//         write_buffer[i * 2 + 1] = (uint8_t)(word_to_write & 0xFF); // Low byte
-//     }
-    
-//     printf("\n>> Preparing to write %zu-byte test pattern to SRAM...\n", test_size);
-//     printf("Data to be written:\n");
-//     // Now we pass the buffer (which is a pointer) to the hexdump function.
-//     utils_format_hexdump(write_buffer, test_size, test_address);
-
-//     // --- 2. Write the data using the GamePak API ---
-//     printf("\n>> Writing data...\n");
-//     // Pass the buffer to the write function.
-//     if (!gamepak_write_sram_bytes(test_address, write_buffer, test_size)) {
-//         printf("ERROR: API call to gamepak_write_sram_bytes() failed.\n");
-//         return true;
-//     }
-//     printf("Write operation completed.\n");
-
-//     // --- 3. Read the data back for verification ---
-//     printf("\n>> Reading data back for verification...\n");
-//     uint8_t read_buffer[test_size];
-//     if (!gamepak_read_sram_bytes(test_address, read_buffer, test_size)) {
-//         printf("ERROR: API call to gamepak_read_sram_bytes() failed during verification.\n");
-//         return true;
-//     }
-//     printf("Read-back complete. Verifying...\n");
-    
-//     // --- 4. Compare and report the result ---
-//     // Now the memcmp can correctly compare the two buffers.
-//     if (memcmp(write_buffer, read_buffer, test_size) == 0) {
-//         printf("\n[SUCCESS]: Data verified correctly!\n");
-//         printf("The contents of SRAM at 0x%08X now are:\n", test_address);
-//         utils_format_hexdump(read_buffer, test_size, test_address);
-//     } else {
-//         printf("\n[FAILURE]: Read-back data does not match what was written!\n");
-//         printf("Expected data:\n");
-//         utils_format_hexdump(write_buffer, test_size, test_address);
-//         printf("Actual data read from SRAM:\n");
-//         utils_format_hexdump(read_buffer, test_size, test_address);
-//     }
-
-//     return true;
-// }
-
 /**
  * @brief Writes a 64-byte test pattern to SRAM address 0x0000 and verifies it.
  */
@@ -401,7 +356,7 @@ static bool cmd_n64_write32_sram(const cli_args_t *args)
     const size_t   test_size = 64;
     const uint32_t sram_addr = N64_SRAM_BASE;
 
-    if (!_gamepak_check_and_refresh() ||
+    if (/*!_gamepak_check_and_refresh() ||*/
         gamepak_get_save_type() != N64_SAVE_TYPE_SRAM)
     {
         printf("INFO: SRAM not detected on this cartridge.\n");
@@ -447,7 +402,7 @@ static bool cmd_n64_write32_eeprom(const cli_args_t *args)
     const size_t   test_size = 64;
     const uint32_t eep_addr  = 0;
 
-    if (!_gamepak_check_and_refresh() ||
+    if (/*!_gamepak_check_and_refresh() ||*/
         (gamepak_get_save_type() != N64_SAVE_TYPE_EEPROM_4K &&
          gamepak_get_save_type() != N64_SAVE_TYPE_EEPROM_16K))
     {
@@ -487,93 +442,41 @@ static bool cmd_n64_write32_eeprom(const cli_args_t *args)
     return true;
 }
 
-// static bool cmd_n64_write32_fram(const cli_args_t *a)
-// {
-//     (void)a;
-//     const size_t test_size   = 64;
-//     const uint32_t test_addr = 0;          /* first 64 bytes */
+static bool cmd_n64_write32_fram(const cli_args_t *args) {
+    (void)args;
+    uint8_t test_data[FLASHRAM_PAGE_SIZE]; // Must be full 128 bytes!
+    memset(test_data, 0xFF, FLASHRAM_PAGE_SIZE); // Pad with FF
+    
+    // Put our 32-byte pattern at the start
+    uint8_t pattern[32] = { 
+        0xDE, 0xAD, 0xBE, 0xEF, 0xDE, 0xAD, 0xBE, 0xEF,
+        0xDE, 0xAD, 0xBE, 0xEF, 0xDE, 0xAD, 0xBE, 0xEF,
+        0xDE, 0xAD, 0xBE, 0xEF, 0xDE, 0xAD, 0xBE, 0xEF,
+        0xDE, 0xAD, 0xBE, 0xEF, 0xDE, 0xAD, 0xBE, 0xEF
+    };
+    memcpy(test_data, pattern, 32);
 
-//     if (!_gamepak_check_and_refresh() ||
-//         gamepak_get_save_type() != N64_SAVE_TYPE_FLASHRAM)
-//     {
-//         printf("INFO: FlashRAM not detected.\n");
-//         return true;
-//     }
-
-//     uint8_t wr[test_size];
-//     for (size_t i = 0; i < test_size/2; ++i) {
-//         uint16_t w = (i & 1) ? 0x1212 : 0x3434;
-//         wr[2*i]   = w >> 8;
-//         wr[2*i+1] = (uint8_t)w;
-//     }
-
-//     printf("\n>> Writing 64-byte test pattern to FlashRAM...\n");
-//     utils_format_hexdump(wr, test_size, test_addr);
-
-//     if (!gamepak_write_flashram_bytes(test_addr, wr, test_size)) {
-//         printf("ERROR: FlashRAM write or verify failed.\n");
-//         return true;
-//     }
-
-//     uint8_t rd[test_size];
-//     gamepak_read_flashram_bytes(test_addr, rd, test_size);
-
-//     if (memcmp(wr, rd, test_size) == 0) {
-//         printf("[SUCCESS] verified OK:\n");
-//         utils_format_hexdump(rd, test_size, test_addr);
-//     } else {
-//         printf("[FAILURE] data mismatch!\n");
-//     }
-//     return true;
-// }
-
-
-static bool cmd_n64_write32_fram(const cli_args_t *a)
-{
-    (void)a;
-    const size_t test_size   = 64;
-    const uint32_t test_addr = 0;          /* first 64 bytes */
-
-    if (!_gamepak_check_and_refresh() ||
-        gamepak_get_save_type() != N64_SAVE_TYPE_FLASHRAM)
-    {
-        printf("INFO: FlashRAM not detected.\n");
-        return true;
+    printf(">> Erasing FlashRAM Block 0...\n");
+    if (!flashram_erase_block(0x08000000)) {
+        printf("ERROR: Erase failed!\n");
+        return false;
     }
 
-    uint8_t wr[test_size];
-    for (size_t i = 0; i < test_size/2; ++i) {
-        uint16_t w = (i & 1) ? 0xBEEF : 0xDEAD;
-        wr[2*i]   = w >> 8;
-        wr[2*i+1] = (uint8_t)w;
+    printf(">> Writing 128-byte test page to FlashRAM...\n");
+    if (!flashram_program_page(0x08000000, test_data)) {
+        printf("ERROR: FlashRAM program or verify failed.\n");
+        return false;
     }
-
-    printf("\n>> Writing 64-byte test pattern to FlashRAM...\n");
-    utils_format_hexdump(wr, test_size, test_addr);
-
-    if (!gamepak_write_flashram_bytes(test_addr, wr, test_size)) {
-        printf("ERROR: FlashRAM write or verify failed.\n");
-        return true;
-    }
-
-    uint8_t rd[test_size];
-    gamepak_read_flashram_bytes(test_addr, rd, test_size);
-
-    if (memcmp(wr, rd, test_size) == 0) {
-        printf("[SUCCESS] verified OK:\n");
-        utils_format_hexdump(rd, test_size, test_addr);
-    } else {
-        printf("[FAILURE] data mismatch!\n");
-    }
+    
+    printf("SUCCESS! Pattern written.\n");
     return true;
 }
-
 
 static bool cmd_n64_erase_fram(const cli_args_t *a)
 {
     (void)a;
 
-    if (!_gamepak_check_and_refresh() ||
+    if (/*!_gamepak_check_and_refresh() ||*/
         gamepak_get_save_type() != N64_SAVE_TYPE_FLASHRAM)
     {
         printf("INFO: FlashRAM not detected.\n");
@@ -591,7 +494,7 @@ static bool cmd_n64_erase_fram(const cli_args_t *a)
             printf("ERROR: erase failed @ 0x%06lX\n", (unsigned long)addr);
             return true;
         }
-        tud_task();                 /* keep USB CDC alive */
+        //tud_task();                 /* keep USB CDC alive */
     }
 
     /* ---------- blank-check ---------- */
@@ -621,7 +524,7 @@ static bool cmd_n64_fullwrite_fram(const cli_args_t *a)
 {
     (void)a;
 
-    if (!_gamepak_check_and_refresh() ||
+    if (/*!_gamepak_check_and_refresh() ||*/
         gamepak_get_save_type() != N64_SAVE_TYPE_FLASHRAM)
     {
         printf("INFO: FlashRAM not detected.\n");
@@ -659,7 +562,7 @@ static bool cmd_n64_fullwrite_fram(const cli_args_t *a)
             printf("ERROR: program failed @ 0x%06lX\n", (unsigned long)base);
             return true;
         }
-        tud_task();                 /* service USB */
+        //tud_task();                 /* service USB */
     }
 
     /* ---------- verify ---------- */
@@ -689,238 +592,517 @@ static bool cmd_n64_fullwrite_fram(const cli_args_t *a)
     return true;
 }
 
+// Claude Code stuff
+// ── Export ROM Dump ──────────────────────────────────────────────────────────────
+static bool cmd_n64_dump_rom(const cli_args_t *args)
+{
+    (void)args;
 
+    const n64_gamepak_info_t *info = gamepak_get_info();
+    if (!info || !info->valid) {
+        printf("ERROR: No cartridge detected. Run n64_init first.\n");
+        return true;
+    }
 
-///// V V V    Hacky shit for testing       V V V
+    uint32_t rom_size = info->rom_size_bytes;
+    if (rom_size == 0) {
+        printf("ERROR: ROM size unknown.\n");
+        return true;
+    }
 
+    const uint16_t CHUNK_SIZE = 512;
+    uint32_t num_chunks = rom_size / CHUNK_SIZE;
+    uint8_t  chunk_buf[CHUNK_SIZE];
+    uint8_t  seq = 0;
 
+    // Tell Python the size, then signal ready to begin binary transfer
+    printf("ROM_SIZE:%u\n", (unsigned)rom_size);
+    printf("READY\n");
 
+    for (uint32_t i = 0; i < num_chunks; i++) {
+        uint32_t addr = N64_ROM_BASE + (i * CHUNK_SIZE);
 
-// const char* joybus_peripheral_to_string(n64_joybus_peripheral_t peripheral) {
-//     switch (peripheral) {
-//         case JOYBUS_PERIPHERAL_NONE:
-//             return "No Device Detected";
-        
-//         case JOYBUS_PERIPHERAL_CONTROLLER:
-//             return "Standard N64 Controller";
-            
-//         case JOYBUS_PERIPHERAL_EEPROM_4K:
-//             return "On-Cart EEPROM (4Kbit)";
-            
-//         case JOYBUS_PERIPHERAL_EEPROM_16K:
-//             return "On-Cart EEPROM (16Kbit)";
-            
-//         case JOYBUS_PERIPHERAL_UNKNOWN:
-//             return "Unknown Device";
-            
-//         default:
-//             return "Invalid/Unspecified Peripheral";
-//     }
-// }
+        if (!gamepak_read_rom_bytes(addr, chunk_buf, CHUNK_SIZE)) {
+            printf("ERROR: Read failed at chunk %u (0x%08X)\n", (unsigned)i, (unsigned)addr);
+            return true;
+        }
 
+        if (!packet_send_reliable(chunk_buf, CHUNK_SIZE, seq)) {
+            printf("ERROR: Transfer failed at chunk %u\n", (unsigned)i);
+            return true;
+        }
 
-
-
-// static bool cmd_n64_test_controller(const cli_args_t *args) {
-//     (void)args;
-    
-//     if (joybus_identify_peripheral() != JOYBUS_PERIPHERAL_CONTROLLER) {
-//         printf("ERROR: Standard controller not detected.\n");
-//         return true;
-//     }
-    
-//     printf("SUCCESS: Controller detected. Starting live poll...\n");
-//     printf("Press 'q' on your keyboard to quit.\n\n");
-
-//     n64_controller_state_t controller_state; // The struct to hold the data
-
-//     while (true) {
-//         if (cli_io_read_char_nonblocking() == 'q') {
-//             break;
-//         }
-
-//         // The API call fills our struct with data
-//         if (joybus_read_controller_state(&controller_state)) {
-//             // We pass a POINTER to the struct to our print helper
-//             _print_controller_state(&controller_state);
-//         } else {
-//             printf("\rState: TIMEOUT - Controller disconnected.                  ");
-//             fflush(stdout);
-//         }
-
-//         sleep_ms(50);
-//     }
-
-//     printf("\n\n--- Live poll finished. ---\n");
-//     return true;
-// }
-
-
-static bool cmd_n64_test_controller(const cli_args_t *args) {
-    // (void)args;
-
-    // printf("\n>> Probing Joybus for peripheral...\n");
-
-    // // --- This block now performs the raw probe directly ---
-    // // We need the private helper functions from joybus.c for this test.
-    // bool _joybus_read_bytes(uint8_t* buffer, size_t len);
-    // void _joybus_send_command(const uint8_t* command, size_t len);
-
-    // uint8_t info_command[] = {0xFF}; // The standard "Info" command
-    // uint8_t response[3];
-
-    // // Send the command and attempt to read the 3-byte response.
-    // _joybus_send_command(info_command, sizeof(info_command));
-    // if (!_joybus_read_bytes(response, sizeof(response))) {
-    //     printf("ERROR: Timeout while waiting for response. No device detected.\n");
-    //     return true;
-    // }
-
-    // // --- This is the new, critical debugging output ---
-    // uint32_t device_id = ((uint32_t)response[0] << 16) | ((uint32_t)response[1] << 8) | response[2];
-    // printf("INFO: Received Raw Device ID: 0x%02X%02X%02X\n", response[0], response[1], response[2]);
-
-
-    // // --- Now, we interpret the raw ID ---
-    // if (device_id == 0x050002) {
-    //     printf("INFO: ID matches 'Standard Controller'.\n");
-    // } else if (device_id == 0x050001) {
-    //     printf("INFO: ID matches 'Controller with Pak'.\n");
-    // } else if (device_id == 0x008001) {
-    //     printf("INFO: ID matches 'EEPROM 4Kbit'.\n");
-    // } else if (device_id == 0x00C001) {
-    //     printf("INFO: ID matches 'EEPROM 16Kbit'.\n");
-    // } else {
-    //     printf("INFO: Device ID is unknown.\n");
-    // }
-    
-    // // --- Finally, proceed only if it's a controller ---
-    // if (device_id == 0x050002 || device_id == 0x050001) {
-    //     printf("\nController detected. Starting live poll...\n");
-    //     printf("Press 'q' on your keyboard to quit.\n\n");
-
-    //     n64_controller_state_t controller_state;
-    //     while (true) {
-    //         if (cli_io_read_char_nonblocking() == 'q') {
-    //             break;
-    //         }
-
-    //         if (joybus_read_controller_state(&controller_state)) {
-    //             _print_controller_state(&controller_state);
-    //         } else {
-    //             printf("\rState: TIMEOUT - Controller disconnected.                  ");
-    //             fflush(stdout);
-    //         }
-    //         sleep_ms(50);
-    //     }
-    //     printf("\n\n--- Live poll finished. ---\n");
-    // }
-
-    // return true;
-}
-
-// In src/cli/plugin_n64.c, with the other cmd_ functions
-static bool cmd_n64_test_buttons(const cli_args_t *args) {
-    // (void)args;
-
-    // // We need to use the global PIO variables from joybus.c for this hack
-    // extern PIO pio;
-    // extern uint piooffset;
-    // extern pio_sm_config config;
-    
-    // printf("\n--- Starting Live Controller Poll ---\n");
-    // printf("Press buttons on the N64 controller and watch the values change.\n");
-    // printf("Press 'q' on your keyboard to quit.\n\n");
-
-    // // Loop forever until the user quits
-    // while (true) {
-    //     // Check if the user wants to quit
-    //     int key = cli_io_read_char_nonblocking();
-    //     if (key == 'q' || key == 'Q') {
-    //         break;
-    //     }
-
-    //     // --- Send the "Poll" command (0x01) ---
-    //     uint8_t poll_command[] = {0x01};
-    //     uint32_t pio_command_buffer[8];
-    //     int pio_command_len;
-    //     convertToPio(poll_command, 1, pio_command_buffer, &pio_command_len);
-        
-    //     // Send the command using the same logic as the identify test
-    //     pio_sm_set_enabled(pio, 0, false);
-    //     pio_sm_init(pio, 0, piooffset + joybus_offset_outmode, &config);
-    //     pio_sm_set_enabled(pio, 0, true);
-    //     for (int i = 0; i < pio_command_len; i++) {
-    //         pio_sm_put_blocking(pio, 0, pio_command_buffer[i]);
-    //     }
-
-    //     // --- Read the 4-byte response ---
-    //     uint32_t byte1 = GetInputWithTimeout();
-    //     uint32_t byte2 = GetInputWithTimeout();
-    //     uint32_t byte3 = GetInputWithTimeout();
-    //     uint32_t byte4 = GetInputWithTimeout();
-
-    //     // Print the raw hex values to the screen on a single line
-    //     // The \r (carriage return) makes the line overwrite itself
-    //     printf("\rController State: 0x%02X 0x%02X 0x%02X 0x%02X", byte1, byte2, byte3, byte4);
-        
-    //     // Force the output buffer to flush so we see the update immediately
-    //     fflush(stdout);
-
-    //     // A short delay to prevent spamming the bus too hard
-    //     sleep_ms(50);
-    // }
-
-    // printf("\n\n--- Live poll finished. ---\n");
+        seq++; // wraps naturally at 255 -> 0, Python matches this
+    }
+    sleep_ms(10); 
+    printf("DUMP_COMPLETE\n");
     return true;
 }
 
-// static void _print_controller_state(const n64_controller_state_t* state) {
-//     // // The \r carriage return moves the cursor to the start of the line.
-//     // printf("\rState: ");
+// ── Export Save (auto-detect) ────────────────────────────────────────────────
+static bool cmd_n64_export_save(const cli_args_t *args)
+{
+    switch (gamepak_get_save_type()) {
+        case N64_SAVE_TYPE_SRAM:
+            return cmd_n64_export_sram(args);
+        case N64_SAVE_TYPE_EEPROM_4K:
+        case N64_SAVE_TYPE_EEPROM_16K:
+            return cmd_n64_export_eeprom(args);
+        case N64_SAVE_TYPE_FLASHRAM:
+            return cmd_n64_export_flashram(args);
+        default:
+            printf("No save chip detected.\n");
+            return true;
+    }
+}
 
-//     // // Now we access the clean boolean fields from the struct.
-//     // if (state->a) printf("A ");
-//     // if (state->b) printf("B ");
-//     // if (state->z) printf("Z ");
-//     // if (state->start) printf("S ");
-//     // if (state->d_up) printf("DU ");
-//     // if (state->d_down) printf("DD ");
-//     // if (state->d_left) printf("DL ");
-//     // if (state->d_right) printf("DR ");
-//     // if (state->l) printf("L ");
-//     // if (state->r) printf("R ");
-//     // if (state->c_up) printf("CU ");
-//     // if (state->c_down) printf("CD ");
-//     // if (state->c_left) printf("CL ");
-//     // if (state->c_right) printf("CR ");
+// ── Import Save (auto-detect) ────────────────────────────────────────────────
+static bool cmd_n64_import_save(const cli_args_t *args)
+{
+    switch (gamepak_get_save_type()) {
+        case N64_SAVE_TYPE_SRAM:
+            return cmd_n64_import_sram(args);
+        case N64_SAVE_TYPE_EEPROM_4K:
+        case N64_SAVE_TYPE_EEPROM_16K:
+            return cmd_n64_import_eeprom(args);
+        case N64_SAVE_TYPE_FLASHRAM:
+            return cmd_n64_import_flashram(args);
+        default:
+            printf("No save chip detected.\n");
+            return true;
+    }
+}
 
-//     // // Access the joystick axes from the struct.
-//     // printf("  Joy X/Y: %4d,%4d", state->x_axis, state->y_axis);
+// ── Export SRAM ──────────────────────────────────────────────────────────────
+static bool cmd_n64_export_sram(const cli_args_t *args)
+{
+    (void)args;
+    if (gamepak_get_save_type() != N64_SAVE_TYPE_SRAM) {
+        printf("ERROR: SRAM not detected.\n");
+        return true;
+    }
+
+    const uint16_t CHUNK_SIZE = 512;
+    const uint32_t num_chunks = N64_SRAM_SIZE / CHUNK_SIZE;
+    static uint8_t chunk_buf[512];
+    uint8_t seq = 0;
+
+    printf("SAVE_TYPE:SRAM\n");
+    printf("SAVE_SIZE:%u\n", (unsigned)N64_SRAM_SIZE);
+    printf("READY\n");
+
+    for (uint32_t i = 0; i < num_chunks; i++) {
+        uint32_t addr = N64_SRAM_BASE + (i * CHUNK_SIZE);
+        if (!gamepak_read_sram_bytes(addr, chunk_buf, CHUNK_SIZE)) {
+            printf("ERROR: SRAM read failed at chunk %u\n", (unsigned)i);
+            return true;
+        }
+        if (!packet_send_reliable(chunk_buf, CHUNK_SIZE, seq)) {
+            printf("ERROR: Transfer failed at chunk %u\n", (unsigned)i);
+            return true;
+        }
+        seq++;
+    }
+    sleep_ms(10);
+    printf("EXPORT_COMPLETE\n");
+    return true;
+}
+
+// ── Export EEPROM ─────────────────────────────────────────────────────────────
+static bool cmd_n64_export_eeprom(const cli_args_t *args)
+{
+    (void)args;
+    n64_save_type_t st = gamepak_get_save_type();
+    if (st != N64_SAVE_TYPE_EEPROM_4K && st != N64_SAVE_TYPE_EEPROM_16K) {
+        printf("ERROR: EEPROM not detected.\n");
+        return true;
+    }
+
+    size_t   save_size  = gamepak_get_save_size();
+    const uint16_t CHUNK_SIZE = 512;
+    uint32_t num_chunks = save_size / CHUNK_SIZE;
+    if (num_chunks == 0) num_chunks = 1;  // 4K = 512 bytes = 1 chunk
+    static uint8_t chunk_buf[512];
+    uint8_t seq = 0;
+
+    printf("SAVE_TYPE:EEPROM\n");
+    printf("SAVE_SIZE:%u\n", (unsigned)save_size);
+    printf("READY\n");
+
+    for (uint32_t i = 0; i < num_chunks; i++) {
+        uint32_t addr = i * CHUNK_SIZE;
+        size_t   this_chunk = (save_size - addr < CHUNK_SIZE)
+                              ? (save_size - addr) : CHUNK_SIZE;
+        if (!gamepak_read_eeprom_bytes(addr, chunk_buf, this_chunk)) {
+            printf("ERROR: EEPROM read failed at chunk %u\n", (unsigned)i);
+            return true;
+        }
+        if (!packet_send_reliable(chunk_buf, (uint16_t)this_chunk, seq)) {
+            printf("ERROR: Transfer failed at chunk %u\n", (unsigned)i);
+            return true;
+        }
+        seq++;
+    }
+    sleep_ms(10);
+    printf("EXPORT_COMPLETE\n");
+    return true;
+}
+
+// ── Import SRAM ───────────────────────────────────────────────────────────────
+static bool cmd_n64_import_sram(const cli_args_t *args)
+{
+    (void)args;
+    if (gamepak_get_save_type() != N64_SAVE_TYPE_SRAM) {
+        printf("ERROR: SRAM not detected.\n");
+        return true;
+    }
+
+    const uint16_t CHUNK_SIZE = 512;
+    const uint32_t num_chunks = N64_SRAM_SIZE / CHUNK_SIZE;
+    static uint8_t chunk_buf[512];
+    uint8_t seq = 0;
+
+    printf("SAVE_SIZE:%u\n", (unsigned)N64_SRAM_SIZE);
+    printf("READY\n");
+
+    for (uint32_t i = 0; i < num_chunks; i++) {
+        if (!packet_receive_reliable(chunk_buf, CHUNK_SIZE, seq)) {
+            printf("ERROR: Receive failed at chunk %u\n", (unsigned)i);
+            return true;
+        }
+        uint32_t addr = N64_SRAM_BASE + (i * CHUNK_SIZE);
+        if (!gamepak_write_sram_bytes(addr, chunk_buf, CHUNK_SIZE)) {
+            printf("ERROR: SRAM write failed at chunk %u\n", (unsigned)i);
+            return true;
+        }
+        seq++;
+    }
+    sleep_ms(10);
+    printf("IMPORT_COMPLETE\n");
+    return true;
+}
+
+// ── Import EEPROM ─────────────────────────────────────────────────────────────
+static bool cmd_n64_import_eeprom(const cli_args_t *args)
+{
+    (void)args;
+    n64_save_type_t st = gamepak_get_save_type();
+    if (st != N64_SAVE_TYPE_EEPROM_4K && st != N64_SAVE_TYPE_EEPROM_16K) {
+        printf("ERROR: EEPROM not detected.\n");
+        return true;
+    }
+
+    size_t   save_size  = gamepak_get_save_size();
+    const uint16_t CHUNK_SIZE = 512;
+    uint32_t num_chunks = save_size / CHUNK_SIZE;
+    if (num_chunks == 0) num_chunks = 1;
+    static uint8_t chunk_buf[512];
+    uint8_t seq = 0;
+
+    printf("SAVE_SIZE:%u\n", (unsigned)save_size);
+    printf("READY\n");
+
+    for (uint32_t i = 0; i < num_chunks; i++) {
+        uint32_t addr = i * CHUNK_SIZE;
+        size_t   this_chunk = (save_size - addr < CHUNK_SIZE)
+                              ? (save_size - addr) : CHUNK_SIZE;
+        if (!packet_receive_reliable(chunk_buf, (uint16_t)this_chunk, seq)) {
+            printf("ERROR: Receive failed at chunk %u\n", (unsigned)i);
+            return true;
+        }
+        if (!gamepak_write_and_verify_eeprom_bytes(addr, chunk_buf, this_chunk)) {
+            printf("ERROR: EEPROM write failed at chunk %u\n", (unsigned)i);
+            return true;
+        }
+        seq++;
+    }
+    sleep_ms(10);
+    printf("IMPORT_COMPLETE\n");
+    return true;
+}
+
+// ── Import FlashRAM ──────────────────────────────────────────────────────────
+static bool cmd_n64_import_flashram(const cli_args_t *args)
+{
+    (void)args;
+    if (gamepak_get_save_type() != N64_SAVE_TYPE_FLASHRAM) {
+        printf("ERROR: FlashRAM not detected.\n");
+        return true;
+    }
+
+    const uint16_t CHUNK_SIZE = 512;
+    const uint16_t PAGE_SIZE  = 128;
+    const uint32_t num_chunks = N64_FLASHRAM_SIZE / CHUNK_SIZE;
+    static uint8_t chunk_buf[512];
+    uint8_t seq = 0;
+
+    printf("SAVE_SIZE:%u\n", (unsigned)N64_FLASHRAM_SIZE);
     
-//     // // Print spaces to clear the rest of the line from previous, longer prints.
-//     // printf("                                ");
+    // Step 1: Erase THE ENTIRE CHIP (All 8 banks)
+    printf("ERASING ALL BANKS...\n");
+    // Ensure your flashram_erase_block function loops 8 times internally
+    if (!flashram_erase_block(0x08000000)) { 
+        printf("ERROR: Erase failed.\n");
+        return true;
+    }
 
-//     // // Force the output buffer to flush so the line updates immediately.
-//     // fflush(stdout);
-// }
+    printf("READY\n");
 
-static uint8_t _joybus_read_byte_decoded(void) {
-    // // extern PIO pio; // HACK: Access the global PIO handle
+    for (uint32_t i = 0; i < num_chunks; i++) {
+        // Clear buffer before receiving
+        while (getchar_timeout_us(0) != PICO_ERROR_TIMEOUT); 
+        
+        if (!packet_receive_reliable(chunk_buf, CHUNK_SIZE, seq)) {
+            printf("\nERROR: Receive failed at chunk %u\n", (unsigned)i);
+            return true;
+        }
 
-    // uint8_t decoded_byte = 0;
-    // for (int i = 0; i < 8; i++) {
-    //     // Read the timing value from the PIO FIFO. Add a timeout for safety.
-    //     uint32_t pulse_width_raw = pio_sm_get_with_timeout_us(pio, 0, 500);
+        uint32_t base_addr = i * CHUNK_SIZE;
 
-    //     // The PIO pushes a 5-bit representation of how many loops it did.
-    //     // A short pulse ('1' bit) will run out the counter, leaving a small number.
-    //     // A long pulse ('0' bit) will exit early, leaving a large number.
-    //     // This threshold value distinguishes between the two.
-    //     bool bit = (pulse_width_raw < 15);
+        // Step 2: Write the 512-byte chunk (4 pages)
+        for (int p = 0; p < 4; p++) {
+            if (!flashram_program_page(base_addr + (p * PAGE_SIZE), &chunk_buf[p * PAGE_SIZE])) {
+                printf("\nERROR: Program failed at chunk %u, page %d\n", (unsigned)i, p);
+                return true;
+            }
+        }
 
-    //     // Shift the decoded bit into our byte
-    //     decoded_byte = (decoded_byte << 1) | bit;
-    // }
-    // return decoded_byte;
+        // Step 3: Manual Throttle 
+        // We MUST let the Python script know we are done with the physical write.
+        // If your packet_receive_reliable ACKs automatically, Python is already 
+        // sending the next chunk. 
+        // Add a small delay here to ensure the Pico is ready for the next getchar.
+        sleep_ms(5); 
+
+        // If your packet_receive_reliable DOES NOT ACK, uncomment the next line:
+        // putchar(0x06); fflush(stdout);
+
+        seq++;
+    }
+    sleep_ms(10);
+    printf("IMPORT_COMPLETE\n");
+    return true;
+}
+
+// ── Export FlashRAM ──────────────────────────────────────────────────────────
+static bool cmd_n64_export_flashram(const cli_args_t *args)
+{
+    (void)args;
+    if (gamepak_get_save_type() != N64_SAVE_TYPE_FLASHRAM) {
+        printf("ERROR: FlashRAM not detected.\n");
+        return true;
+    }
+
+    const uint16_t CHUNK_SIZE = 512;
+    const uint32_t num_chunks = N64_FLASHRAM_SIZE / CHUNK_SIZE;
+    static uint8_t chunk_buf[512];
+    uint8_t seq = 0;
+
+    printf("SAVE_TYPE:FLASHRAM\n");
+    printf("SAVE_SIZE:%u\n", (unsigned)N64_FLASHRAM_SIZE);
+    printf("READY\n");
+
+    for (uint32_t i = 0; i < num_chunks; i++) {
+        uint32_t addr = i * CHUNK_SIZE;
+        if (!gamepak_read_flashram_bytes(addr, chunk_buf, CHUNK_SIZE)) {
+            printf("ERROR: FlashRAM read failed at chunk %u\n", (unsigned)i);
+            return true;
+        }
+        if (!packet_send_reliable(chunk_buf, CHUNK_SIZE, seq)) {
+            printf("ERROR: Transfer failed at chunk %u\n", (unsigned)i);
+            return true;
+        }
+        seq++;
+    }
+
+    sleep_ms(10);
+    printf("EXPORT_COMPLETE\n");
+    return true;
+}
+
+
+// ── Raw FlashRAM bus diagnostic ────────────────────────────────────────────
+// Talks directly to the bus. Does NOT call any gamepak_*flashram* functions.
+static void diag_flash_cmd(uint32_t cmd) {
+    uint16_t low  = (uint16_t)(cmd & 0xFFFFu);
+    uint16_t high = (uint16_t)(cmd >> 16);
+    adbus_set_direction(true);
+    adbus_latch_address(0x08010000u);
+    adbus_write_word(high);
+    adbus_write_word(low);
+    adbus_set_direction(false);
+}
+
+static void diag_flash_read8(uint32_t addr, uint8_t out[8]) {
+    adbus_latch_address(addr);
+    for (int i = 0; i < 8; i += 2) {
+        uint16_t w = adbus_read_word();
+        out[i]     = (uint8_t)(w >> 8);
+        out[i + 1] = (uint8_t)(w & 0xFF);
+    }
+}
+
+static void diag_print8(const char *label, const uint8_t b[8]) {
+    printf("  %-20s: %02X %02X %02X %02X %02X %02X %02X %02X\n",
+           label, b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7]);
+}
+
+static bool cmd_n64_flash_diag(const cli_args_t *args)
+{
+    (void)args;
+    uint8_t buf[8];
+
+    printf("\n=== FlashRAM Bus Diagnostic ===\n");
+    printf("Reading raw bus at 0x08000000 with no commands first...\n");
+
+    diag_flash_read8(0x08000000u, buf);
+    diag_print8("cold read", buf);
+
+    printf("\nStep 1: RESET cmd (0xFF000000)\n");
+    diag_flash_cmd(0xFF000000u);
+    sleep_ms(10);
+    diag_flash_read8(0x08000000u, buf);
+    diag_print8("after reset", buf);
+
+    printf("\nStep 2: Second RESET + 50ms wait\n");
+    diag_flash_cmd(0xFF000000u);
+    sleep_ms(50);
+    diag_flash_read8(0x08000000u, buf);
+    diag_print8("after 2nd reset", buf);
+
+    printf("\nStep 3: READ_ARRAY cmd (0xF0000000)\n");
+    diag_flash_cmd(0xF0000000u);
+    sleep_ms(10);
+    diag_flash_read8(0x08000000u, buf);
+    diag_print8("after read_array", buf);
+
+    printf("\nStep 4: STATUS_MODE cmd (0xE1000000)\n");
+    diag_flash_cmd(0xE1000000u);
+    sleep_us(200);
+    diag_flash_read8(0x08000000u, buf);
+    diag_print8("status/ID", buf);
+
+    printf("\nStep 5: Final RESET\n");
+    diag_flash_cmd(0xFF000000u);
+    sleep_ms(10);
+    diag_flash_read8(0x08000000u, buf);
+    diag_print8("final state", buf);
+
+    printf("\nStep 6: Aggressive — RESET to data addr 0x08000000\n");
+    adbus_set_direction(true);
+    adbus_latch_address(0x08000000u);
+    adbus_write_word(0x00FF);
+    adbus_write_word(0x0000);
+    adbus_set_direction(false);
+    sleep_ms(10);
+
+    diag_flash_cmd(0xE1000000u);
+    sleep_us(200);
+    diag_flash_read8(0x08000000u, buf);
+    diag_print8("after aggressive", buf);
+
+    diag_flash_cmd(0xFF000000u);
+
+    printf("\n=== Done ===\n");
+    printf("Good = 11 11 80 01 00 C2 00 1E (Macronix)\n");
+    printf("       11 11 80 01 00 32 00 F1 (Panasonic)\n");
+    printf("Stuck= 00 8C repeating\n");
+
+    return true;
+}
+
+
+// ── Repro Flash chip identification ────────────────────────────────────────
+// Sends the standard CFI 0xAA/0x55/0x90 ID sequence on the ROM bus.
+// Works with Macronix, Spansion, ST, Intel, Fujitsu repro flash chips.
+static bool cmd_n64_repro_id(const cli_args_t *args)
+{
+    (void)args;
+    const uint32_t base = N64_ROM_BASE;
+    uint16_t v, d;
+
+    printf("\n=== Repro Flash ID ===\n");
+
+    // Confirm bus is alive
+    adbus_latch_address(base);
+    uint16_t h = adbus_read_word();
+    printf("  Header word  : 0x%04X\n", h);
+    if (h != 0x8037 && h != 0x4012 && h != 0x3780) {
+        printf("  Bus bad. Power cycle needed.\n");
+        return true;
+    }
+
+    // ── Protocol 1: Standard CFI (single-width) ──
+    adbus_set_direction(true);
+    adbus_latch_address(base + (0x555 << 1));  adbus_write_word(0x00AA);
+    adbus_latch_address(base + (0x2AA << 1));  adbus_write_word(0x0055);
+    adbus_latch_address(base + (0x555 << 1));  adbus_write_word(0x0090);
+    adbus_set_direction(false);
+    sleep_us(200);
+    adbus_latch_address(base);
+    v = adbus_read_word();  d = adbus_read_word();
+    printf("  Standard CFI : V=0x%04X D=0x%04X\n", v, d);
+    // Reset
+    adbus_set_direction(true);
+    adbus_latch_address(base);  adbus_write_word(0x00F0);
+    adbus_set_direction(false);
+    sleep_ms(50);
+    // Verify
+    adbus_latch_address(base);
+    printf("    recovered  : 0x%04X\n", adbus_read_word());
+
+    // ── Protocol 2: Doubled (Fujitsu/dual-chip) ──
+    adbus_set_direction(true);
+    adbus_latch_address(base + (0x555 << 1));  adbus_write_word(0xAAAA);
+    adbus_latch_address(base + (0x2AA << 1));  adbus_write_word(0x5555);
+    adbus_latch_address(base + (0x555 << 1));  adbus_write_word(0x9090);
+    adbus_set_direction(false);
+    sleep_us(200);
+    adbus_latch_address(base);
+    v = adbus_read_word();  d = adbus_read_word();
+    printf("  Doubled CFI  : V=0x%04X D=0x%04X\n", v, d);
+    // Reset
+    adbus_set_direction(true);
+    adbus_latch_address(base);  adbus_write_word(0xF0F0);
+    adbus_set_direction(false);
+    sleep_ms(50);
+    adbus_latch_address(base);
+    printf("    recovered  : 0x%04X\n", adbus_read_word());
+
+    // ── Protocol 3: Intel (0x90 direct) ──
+    adbus_set_direction(true);
+    adbus_latch_address(base);  adbus_write_word(0x0090);
+    adbus_set_direction(false);
+    sleep_us(200);
+    adbus_latch_address(base);
+    v = adbus_read_word();  d = adbus_read_word();
+    printf("  Intel        : V=0x%04X D=0x%04X\n", v, d);
+    // Reset
+    adbus_set_direction(true);
+    adbus_latch_address(base);  adbus_write_word(0x00FF);
+    adbus_set_direction(false);
+    sleep_ms(50);
+    adbus_latch_address(base);
+    printf("    recovered  : 0x%04X\n", adbus_read_word());
+
+    // ── Protocol 4: Samsung (0x90 to 0x000) ──
+    adbus_set_direction(true);
+    adbus_latch_address(base + 0x000);  adbus_write_word(0x0090);
+    adbus_set_direction(false);
+    sleep_us(200);
+    adbus_latch_address(base);
+    v = adbus_read_word();
+    adbus_latch_address(base + 0x02);
+    d = adbus_read_word();
+    printf("  Samsung      : V=0x%04X D=0x%04X\n", v, d);
+    // Reset
+    adbus_set_direction(true);
+    adbus_latch_address(base);  adbus_write_word(0x00F0);
+    adbus_set_direction(false);
+    sleep_ms(50);
+    adbus_latch_address(base);
+    printf("    recovered  : 0x%04X\n", adbus_read_word());
+
+    printf("=== Done ===\n");
+    return true;
 }
