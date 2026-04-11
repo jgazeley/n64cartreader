@@ -43,13 +43,39 @@ def _git_cmd(repo_root: Path, *args: str) -> str | None:
     return proc.stdout.strip() or None
 
 
+def _git_repo_root(start_path: Path) -> Path:
+    root = _git_cmd(start_path, "rev-parse", "--show-toplevel")
+    return Path(root) if root else start_path
+
+
+def host_git_tag(repo_root: Path | None = None) -> str | None:
+    root = _git_repo_root(repo_root or Path(__file__).resolve().parents[2])
+    short = _git_cmd(root, "rev-parse", "--short=7", "HEAD")
+    if not short:
+        return None
+
+    try:
+        dirty = subprocess.run(
+            ["git", "-C", str(root), "diff", "--quiet", "--ignore-submodules", "HEAD", "--"],
+            check=False,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+    except OSError:
+        return short
+
+    if dirty.returncode == 1:
+        return f"{short}-dirty"
+    return short
+
+
 def host_git_metadata(repo_root: Path | None = None) -> dict[str, Any]:
-    root = repo_root or Path(__file__).resolve().parents[2]
+    root = _git_repo_root(repo_root or Path(__file__).resolve().parents[2])
     return {
         "repo_root": str(root),
         "git_commit": _git_cmd(root, "rev-parse", "--short", "HEAD"),
         "git_commit_full": _git_cmd(root, "rev-parse", "HEAD"),
-        "git_describe": _git_cmd(root, "describe", "--always", "--dirty", "--tags"),
+        "git_describe": host_git_tag(root),
     }
 
 

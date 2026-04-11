@@ -3,9 +3,9 @@ from __future__ import annotations
 from datetime import date
 from pathlib import Path
 import os
-import subprocess
 
 from .hexdump import hexdump_file, print_hexdump_legacy
+from .integrity import host_git_tag
 from .n64_ops import (
     pico_firmware_version,
     n64_controller_button_names,
@@ -92,18 +92,7 @@ def _host_build_tag() -> str:
     if override:
         return override
 
-    repo_root = Path(__file__).resolve().parents[2]
-    try:
-        tag = subprocess.check_output(
-            ["git", "-C", str(repo_root), "describe", "--always", "--dirty", "--tags"],
-            stderr=subprocess.DEVNULL,
-            text=True,
-        ).strip()
-        if tag:
-            return tag
-    except Exception:
-        pass
-    return "nogit"
+    return host_git_tag(Path(__file__).resolve().parents[2]) or "nogit"
 
 
 def _firmware_build_tag(cfg: Cfg) -> str:
