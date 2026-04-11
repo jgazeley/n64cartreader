@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>N64 Pico Pak</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<h1>N64 Pico Pak</h1>
+<div class="subtitle">Web Serial interface for N64 headless firmware</div>
+
+<div id="no-serial" class="unsupported" style="display:none">
+  Web Serial API not available. Use Chrome or Edge.
+</div>
+
+<div id="app">
+
+<!-- Connection -->
+<div class="card">
+  <h2><span class="status-dot off" id="status-dot"></span>Connection</h2>
+  <div class="btn-row">
+    <button class="primary" id="btn-connect">Connect</button>
+    <button id="btn-disconnect" disabled>Disconnect</button>
+  </div>
+  <div class="info-grid" id="conn-info" style="margin-top:0.8rem; display:none">
+    <span class="label">Firmware</span><span class="value" id="fw-version">—</span>
+    <span class="label">Port</span><span class="value" id="port-name">—</span>
+    <span class="label">Catalog</span><span class="value" id="catalog-status">not loaded</span>
+  </div>
+  <div class="drop-zone" id="catalog-drop" style="margin-top:0.8rem;padding:0.8rem;font-size:0.8rem;">
+    <p>Drop n64.txt here to load cart catalog</p>
+    <input type="file" id="catalog-input" accept=".txt" style="display:none">
+  </div>
+</div>
+
+<!-- ── Log ── -->
+<div class="section">
+  <div class="section-label">Log</div>
+  <div class="card">
+    <h2 style="display:flex;justify-content:space-between;align-items:center">Activity <label style="font-size:0.75rem;font-weight:normal;color:var(--muted);cursor:pointer"><input type="checkbox" id="chk-verbose" style="margin-right:4px">Verbose</label></h2>
+    <div id="log"></div>
+  </div>
+</div>
+
+<!-- ── GamePak ── -->
+<div class="section">
+  <div class="section-label">GamePak</div>
+
+  <div class="card">
+    <h2>Identification</h2>
+    <div class="btn-row" style="margin-bottom:0.8rem">
+      <button id="btn-rescan" disabled>Rescan</button>
+    </div>
+    <div class="info-grid" id="cart-info">
+      <span class="label">Title</span><span class="value" id="cart-title">—</span>
+      <span class="label">Game ID</span><span class="value" id="cart-id">—</span>
+      <span class="label">ROM</span><span class="value" id="cart-rom-size">—</span>
+      <span class="label">Save Type</span><span class="value" id="cart-save">—</span>
+      <span class="label">Save Size</span><span class="value" id="cart-size">—</span>
+    </div>
+    <div style="margin-top:0.8rem">
+      <select id="save-type-select">
+        <option value="">— Manual save type —</option>
+        <option value="sram">SRAM (32 KB)</option>
+        <option value="sram96k">SRAM 96K</option>
+        <option value="flashram">FlashRAM (128 KB)</option>
+        <option value="eeprom4k">EEPROM 4K (512 B)</option>
+        <option value="eeprom16k">EEPROM 16K (2 KB)</option>
+      </select>
+      <button id="btn-set-save" disabled style="margin-left:0.3rem">Set</button>
+    </div>
+  </div>
+
+  <div class="card" id="card-data">
+    <div id="save-section">
+      <h2>ROM & Save</h2>
+      <div class="btn-row" style="margin-bottom:0.8rem">
+        <button id="btn-dump-rom" disabled>Dump ROM</button>
+        <button id="btn-export" disabled>Export Save</button>
+      </div>
+      <div class="drop-zone" id="drop-zone">
+        <p>Drop a save file here to import, or click to browse</p>
+        <input type="file" id="file-input" accept=".sav,.ram,.sra,.eep,.fla">
+      </div>
+    </div>
+    <div id="gs-section" style="display:none">
+      <h2>GameShark Flash</h2>
+      <div class="info-grid" style="margin-bottom:0.8rem">
+        <span class="label">Flash Size</span><span class="value" id="gs-flash-size">—</span>
+      </div>
+      <div class="btn-row" style="margin-bottom:0.8rem">
+        <button id="btn-gs-export" disabled>Export Flash</button>
+      </div>
+      <div class="drop-zone" id="gs-drop-zone">
+        <p>Drop a GameShark flash image to import, or click to browse</p>
+        <input type="file" id="gs-file-input" accept=".bin">
+      </div>
+    </div>
+    <div class="progress-panel" id="progress-panel" style="display:none">
+      <div class="progress-meta">
+        <span class="progress-label" id="progress-label">Working…</span>
+        <span class="progress-pct" id="progress-pct">0%</span>
+      </div>
+      <div class="progress-bar" id="progress">
+        <div class="fill" id="progress-fill"></div>
+      </div>
+      <div class="progress-detail" id="progress-detail">0 / 0 chunks</div>
+    </div>
+  </div>
+
+</div>
+
+<!-- ── Controller ── -->
+<div class="section">
+  <div class="section-label">Controller</div>
+
+  <div class="card">
+    <h2>Memory Pak</h2>
+    <div class="btn-row" style="margin-bottom:0.8rem">
+      <button id="btn-export-mpk" disabled>Export MPK</button>
+    </div>
+    <div class="drop-zone" id="mpk-drop-zone">
+      <p>Drop a .mpk file here to import, or click to browse</p>
+      <input type="file" id="mpk-file-input" accept=".mpk">
+    </div>
+  </div>
+
+</div>
+
+</div>
+
+<script src="protocol.js"></script>
+<script src="n64.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

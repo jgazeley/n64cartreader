@@ -1,0 +1,260 @@
+:root {
+  --bg: #120826;
+  --surface: #1c0f3a;
+  --surface-raised: #241450;
+  --border: #3a2070;
+  --border-light: #5030a0;
+
+  /* N64 button / logo colors */
+  --n64-red: #e60012;
+  --n64-green: #00a651;
+  --n64-blue: #006bb7;
+  --n64-yellow: #ffd700;
+
+  --text: #e8e0f0;
+  --muted: #8878a0;
+  --ok: #00d060;
+  --err: #ff4455;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+  background: var(--bg);
+  background-image:
+    radial-gradient(ellipse at 20% 0%, rgba(75, 0, 130, 0.3) 0%, transparent 60%),
+    radial-gradient(ellipse at 80% 100%, rgba(0, 50, 120, 0.2) 0%, transparent 60%);
+  color: var(--text);
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 1.5rem;
+}
+
+/* ── Header ── */
+h1 {
+  font-size: 1.6rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  margin-bottom: 0.2rem;
+  background: linear-gradient(135deg, var(--n64-red), var(--n64-yellow), var(--n64-green), var(--n64-blue));
+  background-size: 200% 200%;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+.subtitle {
+  color: var(--muted);
+  font-size: 0.8rem;
+  letter-spacing: 0.05em;
+  margin-bottom: 1.5rem;
+}
+
+/* ── Cards ── */
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 1.2rem;
+  width: 100%;
+  max-width: 540px;
+  margin-bottom: 1rem;
+  box-shadow:
+    0 2px 8px rgba(0, 0, 0, 0.4),
+    inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+.card h2 {
+  font-size: 0.8rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin-bottom: 0.8rem;
+  color: var(--muted);
+}
+
+/* ── Buttons ── */
+button {
+  background: var(--surface-raised);
+  color: var(--text);
+  border: 1px solid var(--border-light);
+  padding: 0.5rem 1.1rem;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 0.85rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  transition: background 0.15s, transform 0.1s, box-shadow 0.15s;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+}
+button:hover:not(:disabled) {
+  background: var(--border);
+  transform: translateY(-1px);
+  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.4);
+}
+button:active:not(:disabled) {
+  transform: translateY(0);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+}
+button:disabled { opacity: 0.35; cursor: not-allowed; }
+button.primary {
+  background: var(--n64-red);
+  border-color: var(--n64-red);
+  color: #fff;
+}
+button.primary:hover:not(:disabled) { background: #cc0010; }
+.btn-row { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+
+/* ── Info grid ── */
+.info-grid {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.3rem 1rem;
+  font-size: 0.85rem;
+}
+.info-grid .label { color: var(--muted); }
+.info-grid .value { font-family: 'Consolas', 'SF Mono', monospace; }
+
+/* ── Log ── */
+#log {
+  background: #0a0614;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.8rem;
+  font-family: 'Consolas', 'SF Mono', monospace;
+  font-size: 0.78rem;
+  max-height: 180px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+  color: var(--muted);
+  box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.5);
+}
+
+/* ── Status indicator ── */
+.status-dot {
+  display: inline-block;
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  margin-right: 6px;
+  box-shadow: 0 0 4px currentColor;
+}
+.status-dot.off { background: #555; color: #555; }
+.status-dot.on { background: var(--ok); color: var(--ok); }
+.status-dot.err { background: var(--err); color: var(--err); }
+
+/* ── Progress ── */
+.progress-panel {
+  margin-top: 0.9rem;
+  padding: 0.75rem 0.8rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.18);
+}
+.progress-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 0.8rem;
+  margin-bottom: 0.45rem;
+}
+.progress-label {
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text);
+}
+.progress-pct {
+  font-family: 'Consolas', 'SF Mono', monospace;
+  font-size: 0.85rem;
+  color: var(--n64-yellow);
+}
+.progress-bar {
+  width: 100%;
+  height: 6px;
+  background: var(--bg);
+  border-radius: 3px;
+  overflow: hidden;
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.4);
+}
+.progress-bar .fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--n64-green), var(--n64-blue));
+  width: 0%;
+  transition: width 0.1s;
+  border-radius: 3px;
+}
+.progress-detail {
+  margin-top: 0.45rem;
+  font-family: 'Consolas', 'SF Mono', monospace;
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+/* ── Drop zones (cartridge slot feel) ── */
+.drop-zone {
+  border: 2px dashed var(--border);
+  border-radius: 8px;
+  padding: 1.5rem;
+  text-align: center;
+  color: var(--muted);
+  font-size: 0.82rem;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+  background: rgba(0, 0, 0, 0.15);
+  box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.3);
+}
+.drop-zone:hover, .drop-zone.dragover {
+  border-color: var(--n64-yellow);
+  background: rgba(255, 215, 0, 0.04);
+}
+.drop-zone input[type="file"] { display: none; }
+
+/* ── Sections ── */
+.section {
+  width: 100%;
+  max-width: 540px;
+  margin-bottom: 0.5rem;
+}
+.section-label {
+  font-size: 0.85rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--border-light);
+  border-bottom: 2px solid var(--border);
+  padding-bottom: 0.4rem;
+  margin-bottom: 0.8rem;
+}
+
+/* Color-code each section divider */
+.section:nth-of-type(1) .section-label { color: var(--n64-yellow); border-bottom-color: var(--n64-yellow); }
+.section:nth-of-type(2) .section-label { color: var(--n64-green); border-bottom-color: var(--n64-green); }
+.section:nth-of-type(3) .section-label { color: var(--n64-blue); border-bottom-color: var(--n64-blue); }
+
+/* ── Misc ── */
+.unsupported {
+  text-align: center;
+  padding: 2rem;
+  color: var(--err);
+}
+
+/* ── Scrollbar styling ── */
+#log::-webkit-scrollbar { width: 6px; }
+#log::-webkit-scrollbar-track { background: transparent; }
+#log::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+#log::-webkit-scrollbar-thumb:hover { background: var(--border-light); }
+
+/* ── Select styling ── */
+select {
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  padding: 0.35rem 0.5rem;
+  border-radius: 6px;
+  font-size: 0.82rem;
+}
+select:focus {
+  outline: 1px solid var(--border-light);
+  border-color: var(--border-light);
+}

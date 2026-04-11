@@ -34,7 +34,7 @@ static void adbus_delay_nops(int nops) {
 
 static inline void adbus_latch_word_internal(uint16_t word, uint32_t ale_pin_mask) {
     uint32_t v = (uint32_t)word << N64_ADBUS_PIN_START;
-    
+
     // Place the word on the bus.
     sio_hw->gpio_clr = N64_ADBUS_GPIO_MASK;
     sio_hw->gpio_set = v;
@@ -43,7 +43,6 @@ static inline void adbus_latch_word_internal(uint16_t word, uint32_t ale_pin_mas
     // Pulse the corresponding ALE line low to latch the value.
     sio_hw->gpio_clr = ale_pin_mask;
     adbus_delay_nops(ADBUS_LATCH_DELAY_NOPS); // Hold time
-    // sio_hw->gpio_set = ale_pin_mask;         // THE FIX: ALE goes HIGH again
     // The ALE line will be de-asserted by the gpio_set(CTRL_INACTIVE_MASK)
     // at the beginning of the next bus operation.
 }
@@ -85,8 +84,11 @@ bool adbus_init(void) {
 
     for (size_t i = 0; i < sizeof(control_pins) / sizeof(control_pins[0]); ++i) {
         gpio_init(control_pins[i]);
+        // Keep active-low controls pulled HIGH while gpio_init() leaves them as INPUT.
+        // Then drive the output HIGH before switching to OUTPUT mode.
+        sio_hw->gpio_set = (1u << control_pins[i]);
+        gpio_pull_up(control_pins[i]);
         gpio_set_dir(control_pins[i], GPIO_OUT);
-        gpio_put(control_pins[i], 1); // Set HIGH (inactive state for all lines)
     }
     s_adbus_is_output = true;   // force adbus_set_direction to run unconditionally
     adbus_set_direction(false);
@@ -125,9 +127,14 @@ uint16_t adbus_read_word(void) {
     // De-assert /RD (drive RD_PIN HIGH) to end the read cycle.
     sio_hw->gpio_set = (1UL << N64_ADBUS_RD_PIN);
     adbus_delay_nops(ADBUS_LATCH_DELAY_NOPS);
-    
+
     // Extract and shift the 16 bits corresponding to the AD bus.
     return (uint16_t)((port_val & N64_ADBUS_GPIO_MASK) >> N64_ADBUS_PIN_START);
+}
+
+uint16_t adbus_read_word_at(uint32_t addr) {
+    adbus_latch_address(addr);
+    return adbus_read_word();
 }
 
 
@@ -141,6 +148,30 @@ void adbus_write_word(uint16_t data) {
     adbus_delay_nops(ADBUS_WRITE_PULSE_NOPS);
     sio_hw->gpio_set = (1UL << N64_ADBUS_WR_PIN);
     adbus_delay_nops(ADBUS_LATCH_DELAY_NOPS);
+    adbus_set_direction(false);
+}
+
+void adbus_write_word_at(uint32_t addr, uint16_t data) {
+    adbus_latch_address(addr);
+    adbus_write_word(data);
+}
+
+void adbus_write_words_at(uint32_t addr, const uint16_t *data, size_t count) {
+    if (!data || count == 0) {
+        return;
+    }
+
+    adbus_latch_address(addr);
+    for (size_t i = 0; i < count; ++i) {
+        adbus_write_word(data[i]);
+    }
+}
+
+
+void adbus_bus_warmup(void) {
+    // Ensure all control lines are HIGH (inactive).
+    sio_hw->gpio_set = ADBUS_CTRL_INACTIVE_MASK;
+    // Release the bus to the cartridge.
     adbus_set_direction(false);
 }
 

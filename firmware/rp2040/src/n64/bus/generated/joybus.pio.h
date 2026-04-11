@@ -21,27 +21,27 @@
 
 static const uint16_t joybus_program_instructions[] = {
             //     .wrap_target
-    0xe080, //  0: set    pindirs, 0                 
+    0xe080, //  0: set    pindirs, 0
     0x3f20, //  1: wait   0 pin, 0               [31]
     0xbf42, //  2: nop                           [31]
-    0x4001, //  3: in     pins, 1                    
-    0x20a0, //  4: wait   1 pin, 0                   
-    0x0001, //  5: jmp    1                          
-    0xe001, //  6: set    pins, 1                    
-    0xe081, //  7: set    pindirs, 1                 
-    0x80e0, //  8: pull   ifempty block              
-    0x6021, //  9: out    x, 1                       
-    0x6041, // 10: out    y, 1                       
-    0x0060, // 11: jmp    !y, 0                      
+    0x4001, //  3: in     pins, 1
+    0x20a0, //  4: wait   1 pin, 0
+    0x0001, //  5: jmp    1
+    0xe001, //  6: set    pins, 1
+    0xe081, //  7: set    pindirs, 1
+    0x80e0, //  8: pull   ifempty block
+    0x6021, //  9: out    x, 1
+    0x6041, // 10: out    y, 1
+    0x0060, // 11: jmp    !y, 0
     0xf800, // 12: set    pins, 0                [24]
     0xb801, // 13: mov    pins, x                [24]
     0xb801, // 14: mov    pins, x                [24]
     0xf301, // 15: set    pins, 1                [19]
-    0x0008, // 16: jmp    8                          
-    0xe081, // 17: set    pindirs, 1                 
-    0xe501, // 18: set    pins, 1                [5] 
-    0xe400, // 19: set    pins, 0                [4] 
-    0x0012, // 20: jmp    18                         
+    0x0008, // 16: jmp    8
+    0xe081, // 17: set    pindirs, 1
+    0xe501, // 18: set    pins, 1                [5]
+    0xe400, // 19: set    pins, 0                [4]
+    0x0012, // 20: jmp    18
             //     .wrap
 };
 

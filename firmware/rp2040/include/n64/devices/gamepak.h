@@ -109,7 +109,7 @@ typedef enum {
 typedef struct {
     n64_gamepak_header_t header;      /**       < Raw header bytes, mapped to fields */
     bool                 valid;       /**       < True if header was successfully read */
-    n64_save_type_t      save_type;   /**       < Detected save media type */
+    n64_save_type_t      save_type;   /**       < Active save media profile (host-selected) */
     size_t               save_size_bytes; /**   < FULL size of the save media in bytes */
     uint32_t             rom_size_bytes; /**    < FULL size of the ROM in bytes */
 } n64_gamepak_info_t;
@@ -122,7 +122,7 @@ typedef struct {
 // Initialization and Status
 //==============================================================================
 
-/** @brief Initializes all GamePak subsystems, reads header, and detects save type. */
+/** @brief Initializes GamePak buses, reads ROM header/size, and clears save profile. */
 bool gamepak_init(void);
 
 /** @brief Safely checks if a cartridge is still present. Useful for hot-swap detection. */
@@ -130,10 +130,6 @@ bool gamepak_is_present(void);
 
 /** @brief Gets a pointer to the main info struct containing all cartridge data. */
 const n64_gamepak_info_t* gamepak_get_info(void);
-
-/** @brief Checks if a valid GamePak (cartridge) is inserted. */
-bool gamepak_is_valid(void);
-
 
 //==============================================================================
 // Cartridge Information (Header) Accessors
@@ -154,21 +150,27 @@ n64_save_type_t gamepak_get_save_type(void);
 /** @brief Gets the game's save size in bytes. */
 size_t gamepak_get_save_size(void);
 
+/** @brief Applies host-selected save media profile used by export/import commands. */
+bool gamepak_set_save_profile(n64_save_type_t save_type, size_t save_size_bytes);
+
+/** @brief Host-directed ROM size override (replaces mirror-scan result). size_bytes must be > 0 and <= 64 MiB. */
+bool gamepak_set_rom_size(uint32_t size_bytes);
+
 /** @brief Gets CRC1 value from the header. */
 uint32_t gamepak_get_rom_crc1(void);
 
 /** @brief Gets CRC2 value from the header. */
 uint32_t gamepak_get_rom_crc2(void);
 
-/** @brief Gets the 4-character Game ID (e.g. "NGEE", "CZGE").  
- *  
- *  Returns a pointer to a 4-byte field (not NUL-terminated).  
- *  If you need to print it as a C-string, copy it into a 5-byte buffer and NUL-terminate.  
+/** @brief Gets the 4-character Game ID (e.g. "NGEE", "CZGE").
+ *
+ *  Returns a pointer to a 4-byte field (not NUL-terminated).
+ *  If you need to print it as a C-string, copy it into a 5-byte buffer and NUL-terminate.
  */
 char *gamepak_get_game_id(void);
 
 /** @brief Gets the header version byte (offset 0x3F). */
-uint8_t   gamepak_get_version(void);
+uint8_t   gamepak_get_rom_version(void);
 
 //==============================================================================
 // ROM Access Functions
@@ -184,7 +186,6 @@ bool gamepak_read_rom_bytes(uint32_t rom_address, uint8_t* buffer, size_t length
 // could be implemented for development/flash cartridges.
 // bool gamepak_write_rom_word(uint32_t rom_address, uint16_t value);
 // bool gamepak_write_rom_bytes(uint32_t rom_address, const uint8_t* buffer, size_t length);
-
 
 //==============================================================================
 // SRAM Access Functions
@@ -221,32 +222,6 @@ bool gamepak_write_and_verify_eeprom_bytes(uint32_t address, const uint8_t* buff
 
 
 //==============================================================================
-// FlashRAM Access Functions (Stubs for Future Expansion)
-//==============================================================================
-
-/** @brief Checks if the cartridge has FlashRAM. */
-bool gamepak_has_flashram(void);
-
-/** @brief Reads bytes from FlashRAM. */
-bool gamepak_read_flashram_bytes(uint32_t address, uint8_t* buffer, size_t length);
-
-/** @brief Writes bytes to a sector of FlashRAM. */
-bool gamepak_write_flashram_sector(uint32_t address, const uint8_t* buffer);
-
-bool gamepak_write_flashram_bytes(uint32_t addr, const uint8_t *src, size_t len);
-
-bool flashram_erase_block(uint32_t byte_addr);
-
-
-
-
-
-
-
-
-
-
-//==============================================================================
 // FlashRAM Access Functions
 //==============================================================================
 
@@ -274,5 +249,8 @@ bool gamepak_write_flashram_bytes(uint32_t addr, const uint8_t *src, size_t len)
 
 
 
+
+/** @brief Forces the bus into a known state by driving it LOW and cycling latches. */
+void gamepak_bus_warmup(void);
 
 #endif // N64_GAMEPAK_H

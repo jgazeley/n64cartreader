@@ -1,0 +1,6 @@
+This project contains code under multiple open-source licenses:
+
+- GPL-3.0 — firmware and software derived from the Sanni Cart Reader project
+- BSD-2-Clause — Joybus PIO and EEPROM code derived from drmdmp64_mass by nopjne
+
+See LICENSES/ for full license texts and docs/LICENSING.md for details.

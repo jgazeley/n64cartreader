@@ -17,6 +17,7 @@
 #ifndef N64_BUS_ADBUS_H
 #define N64_BUS_ADBUS_H
 
+#include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>
 #include "n64/pins.h"
@@ -56,6 +57,14 @@ void adbus_latch_address(uint32_t addr);
 uint16_t adbus_read_word(void);
 
 /**
+ * @brief Latch an address and perform a single 16-bit read transaction.
+ *
+ * @param addr The full 32-bit address to be latched.
+ * @return The 16-bit data read from that address.
+ */
+uint16_t adbus_read_word_at(uint32_t addr);
+
+/**
  * @brief Write one 16-bit word to the bus.
  *
  * Drives the 16 GPIOs, asserts N64_ADBUS_WR_PIN (active-low), then releases.
@@ -65,10 +74,35 @@ uint16_t adbus_read_word(void);
 void adbus_write_word(uint16_t data);
 
 /**
+ * @brief Latch an address and perform a single 16-bit write transaction.
+ *
+ * @param addr The full 32-bit address to be latched.
+ * @param data The 16-bit data to write.
+ */
+void adbus_write_word_at(uint32_t addr, uint16_t data);
+
+/**
+ * @brief Latch an address once and issue multiple consecutive 16-bit writes.
+ *
+ * This is intended for devices that consume a fixed-address command/data
+ * stream after the initial address latch.
+ *
+ * @param addr The full 32-bit address to be latched.
+ * @param data Pointer to the words to write.
+ * @param count Number of 16-bit words to write.
+ */
+void adbus_write_words_at(uint32_t addr, const uint16_t *data, size_t count);
+
+/**
  * @brief Assert or release the cartridge bus reset line.
  *
  * @param active true to assert reset (drive pin low), false to release (drive pin high).
  */
 void adbus_assert_reset(bool active);
+
+/**
+ * @brief Safely release control of the bus and ensure all control lines are inactive.
+ */
+void adbus_bus_warmup(void);
 
 #endif // N64_BUS_ADBUS_H

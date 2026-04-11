@@ -1,0 +1,7 @@
+#ifndef FW_BUILD_INFO_H
+#define FW_BUILD_INFO_H
+
+#define FW_BUILD_TAG "@FW_GIT_DESCRIBE@"
+#define FW_BUILD_UTC "@FW_BUILD_UTC@"
+
+#endif // FW_BUILD_INFO_H

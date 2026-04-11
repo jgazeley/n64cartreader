@@ -1,0 +1,94 @@
+(footprint "Controller_Port_3Pin"
+	(version 20241229)
+	(generator "pcbnew")
+	(generator_version "9.0")
+	(layer "F.Cu")
+	(property "Reference" "REF**"
+		(at 0.5 -6.5 0)
+		(unlocked yes)
+		(layer "F.SilkS")
+		(uuid "af38dbc6-2c06-41a7-9a04-be85695208c1")
+		(effects
+			(font
+				(size 1 1)
+				(thickness 0.1)
+			)
+		)
+	)
+	(property "Value" "N64 Controller"
+		(at 0 1 0)
+		(unlocked yes)
+		(layer "F.Fab")
+		(uuid "57fd6e41-32c9-469f-a9e3-e4714e76057e")
+		(effects
+			(font
+				(size 1 1)
+				(thickness 0.15)
+			)
+		)
+	)
+	(property "Datasheet" ""
+		(at 0 0 0)
+		(unlocked yes)
+		(layer "F.Fab")
+		(hide yes)
+		(uuid "6b8fd846-2d27-4932-a1f1-16b191b52015")
+		(effects
+			(font
+				(size 1 1)
+				(thickness 0.15)
+			)
+		)
+	)
+	(property "Description" ""
+		(at 0 0 0)
+		(unlocked yes)
+		(layer "F.Fab")
+		(hide yes)
+		(uuid "2bf5915b-6d86-44f2-b0f5-a2ce89e4aa8e")
+		(effects
+			(font
+				(size 1 1)
+				(thickness 0.15)
+			)
+		)
+	)
+	(attr through_hole)
+	(fp_text user "${REFERENCE}"
+		(at 0 2.5 0)
+		(unlocked yes)
+		(layer "F.Fab")
+		(uuid "9f63eb3d-e71f-4d1d-aede-08c4e7fd3239")
+		(effects
+			(font
+				(size 1 1)
+				(thickness 0.15)
+			)
+		)
+	)
+	(pad "1" thru_hole circle
+		(at 0 -4)
+		(size 2.8 2.8)
+		(drill 2)
+		(layers "*.Cu" "*.Mask")
+		(remove_unused_layers no)
+		(uuid "39f49ecd-701b-4657-8069-59eca0235f05")
+	)
+	(pad "2" thru_hole circle
+		(at 0 0)
+		(size 2.8 2.8)
+		(drill 2)
+		(layers "*.Cu" "*.Mask")
+		(remove_unused_layers no)
+		(uuid "df799dcb-6d30-4a79-9087-f470e2ebf59c")
+	)
+	(pad "3" thru_hole circle
+		(at 0 4)
+		(size 2.8 2.8)
+		(drill 2)
+		(layers "*.Cu" "*.Mask")
+		(remove_unused_layers no)
+		(uuid "8bdc709f-18c4-4f44-afca-22d4898c167f")
+	)
+	(embedded_fonts no)
+)

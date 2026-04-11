@@ -1,8 +1,12 @@
-# ... (other existing rules) ...
-
-# Build directories (CRITICAL)
+# Build directories
 build/
-firmware/*/build/ # This covers firmware/rp2040/build/ AND any other firmware/XYZ/build/
+firmware/*/build/
+
+# Python cache and virtual environments
+__pycache__/
+*.py[cod]
+.venv/
+venv/
 
 # Compiled binaries and object files
 *.bin
@@ -12,10 +16,19 @@ firmware/*/build/ # This covers firmware/rp2040/build/ AND any other firmware/XY
 *.obj
 *.exe
 *.o
-*.a # For static libraries
+*.a
 
-# Pico SDK specific generated files (ensure these are within your ignored build directories)
-*.pio.h # For PIO generated headers (like joybus.pio.h)
-generated/ # If there are any general 'generated' folders that are build output but not inside 'build/'
+# Local editor / OS noise
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+.~lock.*#
 
-# ... (other rules for Sublime, Python cache, OS files) ...
+# KiCad local cache/session files
+fp-info-cache
+*.kicad_prl
+
+# Pico SDK / PIO generated outputs that should stay in build dirs.
+# The checked-in source PIO header under src/n64/bus/generated is intentional.
+firmware/rp2040/src/n64/bus/joybus.pio.h
