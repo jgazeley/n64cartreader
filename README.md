@@ -1,8 +1,6 @@
 # N64 Pico Cart Reader V2
 
-An open-source tool for backing up and restoring N64 game cartridge saves and ROMs, built on the Raspberry Pi Pico (RP2040).
-
-Connect a cartridge, plug in USB, and manage your saves from a browser or command line — no SD card, no serial terminal, no level shifters.
+A simple, open-source N64 cartridge reader powered by a Raspberry Pi Pico. Plug it in via USB to dump ROMs and back up saves directly to your computer using a web browser or command line.
 
 ![Device in Action](https://user-images.githubusercontent.com/89006649/187055008-d4ed1e56-0636-4c86-967c-e2c1d843efed.jpg)
 
@@ -13,10 +11,10 @@ Connect a cartridge, plug in USB, and manage your saves from a browser or comman
   - SRAM (e.g. 1080 Snowboarding, Ocarina of Time)
   - EEPROM 4K/16K (e.g. GoldenEye, Super Mario 64)
   - FlashRAM (e.g. Majora's Mask, Pokemon Stadium)
-- **Controller Pak (MPK)** export
+- **Controller Pak (MPK)** export/import
 - **GameShark** cartridge export/import/restore
 - **Web Serial GUI** — runs in Chrome/Edge, no install required
-- **Python CLI** for scripted validation, batch operations, and manufacturing test
+- **Python CLI** for all other users
 - **3.3V-native design** — no level shifting needed, lower BOM cost
 - **Automatic cart identification** — detects game, ROM size, and save type from a built-in catalog
 

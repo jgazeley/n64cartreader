@@ -7,8 +7,6 @@ This directory contains the 3D printable enclosure files for the N64 Pico Cart R
 - **`freecad/`**: Original FreeCAD (`.FCStd`) source files. These are provided so you can remix, modify, or adjust the case design to fit your specific printing needs.
 - **`stl/`**: Ready-to-print STL meshes. Import these directly into your slicer of choice (e.g., Cura, PrusaSlicer, OrcaSlicer) to generate the toolpaths for your 3D printer.
 
-*Note: Pre-sliced G-code is intentionally omitted due to printer, filament, and environment specificity.*
-
 ## Printing Recommendations
 
 - **Material:** PLA, PETG, or ABS are all suitable.
@@ -17,4 +15,4 @@ This directory contains the 3D printable enclosure files for the N64 Pico Cart R
 - **Supports:** Check your slicer preview; some overhanging sections for the ports or mounting posts may require minimal supports depending on your printer's bridging capabilities.
 
 ## Licensing
-The enclosure designs are provided under the [Creative Commons Attribution 4.0 International (CC BY 4.0)](https://creativecommons.org/licenses/by/4.0/) license, keeping in line with the hardware licensing of the original V1 project.
+The enclosure designs are provided under the [Creative Commons Attribution 4.0 International (CC BY 4.0)](https://creativecommons.org/licenses/by/4.0/) license.
