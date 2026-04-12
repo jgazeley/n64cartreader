@@ -6,8 +6,6 @@ import sys
 import time
 from dataclasses import dataclass
 
-import serial.tools.list_ports  # type: ignore
-
 from .protocol import (
     ACK,
     CMD_MAGIC,
@@ -29,26 +27,81 @@ from .protocol import (
 
 try:
     import serial  # type: ignore
+    import serial.tools.list_ports  # type: ignore
 except ModuleNotFoundError:  # pragma: no cover
     serial = None
+
+
+PICO_USB_VID = 0x2E8A
+PICO_CDC_PIDS = {0x0005, 0x000A}
+
+
+def serial_ports() -> list:
+    if serial is None:
+        return []
+    return sorted(serial.tools.list_ports.comports(), key=lambda p: p.device)
+
+
+def _is_pico_port(port) -> bool:
+    if port.vid == PICO_USB_VID and (port.pid in PICO_CDC_PIDS or port.pid is None):
+        return True
+
+    text = " ".join(
+        str(value or "")
+        for value in (port.device, port.description, port.manufacturer, port.product)
+    ).lower()
+    return ("pico" in text or "rp2040" in text) and not ("bootsel" in text)
+
+
+def pico_ports() -> list:
+    return [port for port in serial_ports() if _is_pico_port(port)]
+
+
+def format_port(port) -> str:
+    vid_pid = ""
+    if port.vid is not None and port.pid is not None:
+        vid_pid = f" VID:PID={port.vid:04X}:{port.pid:04X}"
+    desc = port.description or "serial port"
+    serial_no = f" serial={port.serial_number}" if getattr(port, "serial_number", None) else ""
+    return f"{port.device} - {desc}{vid_pid}{serial_no}"
+
+
+def port_selection_help() -> str:
+    candidates = pico_ports()
+    all_ports = serial_ports()
+
+    if len(candidates) > 1:
+        lines = ["Multiple Pico serial ports detected; specify one with --port:"]
+        lines.extend(f"  {format_port(port)}" for port in candidates)
+    elif len(candidates) == 1:
+        lines = ["Pico serial port detected but no port is selected; specify it with --port:"]
+        lines.append(f"  {format_port(candidates[0])}")
+    elif all_ports:
+        lines = ["No Pico serial port was auto-detected. Available serial ports:"]
+        lines.extend(f"  {format_port(port)}" for port in all_ports)
+    else:
+        lines = ["No serial ports were detected."]
+
+    lines.extend(
+        [
+            "Examples:",
+            "  Windows: --port COM5",
+            "  Linux:   --port /dev/ttyACM0",
+            "Interactive CLI: choose U -> P, then enter the COM port or device path.",
+            "On Windows, check Device Manager -> Ports (COM & LPT) for the Pico COM port.",
+        ]
+    )
+    return "\n".join(lines)
 
 
 def auto_discover_port() -> str:
     """
     Scans for an RP2040 (Raspberry Pi Pico) by VID/PID.
-    Returns the port name if found, otherwise returns the DEFAULT_PORT.
+    Returns the port name only when exactly one Pico is present.
     """
-    # 2E8A is Raspberry Pi VID, 0005 is the default Pico USB Serial PID
-    PICO_VID = 0x2E8A
-    PICO_PID = 0x0005
-
-    if serial is None:
-        return DEFAULT_PORT
-
-    ports = serial.tools.list_ports.comports()
-    for p in ports:
-        if p.vid == PICO_VID and p.pid == PICO_PID:
-            return p.device
+    ports = pico_ports()
+    if len(ports) == 1:
+        return ports[0].device
     return DEFAULT_PORT
 
 
@@ -75,6 +128,10 @@ class MagicSession:
     def __enter__(self) -> "MagicSession":
         if serial is None:
             raise MagicCliError("pyserial missing. Run: pip install -r requirements.txt")
+        if not self.cfg.port:
+            self.cfg.port = auto_discover_port()
+        if not self.cfg.port:
+            raise MagicCliError(port_selection_help())
         self.ser = serial.Serial(self.cfg.port, self.cfg.baud, timeout=self.cfg.timeout)
         time.sleep(0.4)
         self.ser.reset_input_buffer()

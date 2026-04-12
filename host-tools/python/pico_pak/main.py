@@ -92,7 +92,11 @@ def parser() -> argparse.ArgumentParser:
         prog="pico_pak_n64_magic_cli",
         description="Host CLI for headless raw-magic Pico firmware (interactive or subcommands)",
     )
-    p.add_argument("--port", default=DEFAULT_PORT)
+    p.add_argument(
+        "--port",
+        default=DEFAULT_PORT,
+        help="Serial port. If omitted, auto-detects when exactly one Pico is present (examples: COM5, /dev/ttyACM0).",
+    )
     p.add_argument("--baud", type=int, default=DEFAULT_BAUD)
     p.add_argument("--timeout", type=float, default=DEFAULT_TIMEOUT)
     p.add_argument("--chunk-size", type=int, default=DEFAULT_CHUNK)

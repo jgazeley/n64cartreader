@@ -4,7 +4,7 @@ The N64 Pico Cart Reader V2 includes a browser-based interface that communicates
 
 ## Requirements
 
-- **Browser:** Google Chrome or Microsoft Edge (desktop or Android). Firefox and Safari do not support Web Serial.
+- **Browser:** Google Chrome or Microsoft Edge (desktop). Firefox and Safari do not support Web Serial.
 - **Connection:** The Pico must be flashed with the headless firmware and connected via USB.
 - **No other serial connections:** Close any terminal emulator or serial monitor that might have the port open.
 

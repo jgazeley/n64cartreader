@@ -42,15 +42,22 @@ If the cartridge contacts are dirty, clean them with isopropyl alcohol and a cot
 
 No software installation required. Works on any OS with a supported browser.
 
-### Option B: Python CLI (recommended for power users and testing)
+### Option B: Python CLI (recommended for users without a Chromium-based browser)
+
+The Python CLI auto-detects the Pico when exactly one Pico serial device is connected. If multiple Pico devices are connected, or if auto-detect fails, specify the port manually with `--port`.
+
+On Windows, open **Device Manager -> Ports (COM & LPT)** and look for the Pico/USB serial port, then use that COM name, for example `--port COM5`. In the interactive CLI, choose **U -> P** to list detected ports and set the port without restarting the program.
 
 ```bash
 cd host-tools/python
 
-# Check firmware version
-python3 pico_pak_n64_magic_cli.py --port /dev/ttyACM0 fw-version
+# Check firmware version (auto-detects if exactly one Pico is connected)
+python3 pico_pak_n64_magic_cli.py fw-version
 
-# Identify the cartridge
+# Check firmware version (Windows - replace COM5 with your actual port)
+python pico_pak_n64_magic_cli.py --port COM5 fw-version
+
+# Identify the cartridge (Linux explicit-port example)
 python3 pico_pak_n64_magic_cli.py --port /dev/ttyACM0 n64-cart-id --rescan
 
 # Export save data
@@ -63,14 +70,19 @@ python3 pico_pak_n64_magic_cli.py --port /dev/ttyACM0 n64-import --in save.bin -
 python3 pico_pak_n64_magic_cli.py --port /dev/ttyACM0 n64-rom-dump --out game.z64
 ```
 
-Requirements: Python 3.8+ and pyserial. Install with:
+Requirements: Python 3.10+ and pyserial. If on Windows, install Python from python.org and check "Add python.exe to PATH" during setup. Install with:
+
+**macOS/Linux:**
 ```bash
-pip install -r requirements.txt
+python3 -m pip install -r requirements.txt
 ```
 
-### Option C: Android
-
-Use a USB-OTG adapter and a serial terminal app such as [Serial USB Terminal](https://play.google.com/store/apps/details?id=de.kai_morich.serial_usb_terminal). The device will be detected automatically on connection.
+**Windows:**
+```powershell
+python -m pip install -r requirements.txt
+# Or if that fails:
+py -m pip install -r requirements.txt
+```
 
 ## Building the Firmware
 

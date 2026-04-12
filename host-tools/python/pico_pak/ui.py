@@ -28,7 +28,7 @@ from .n64_ops import (
     save_type_name,
 )
 from .protocol import CMD_PING, N64_HEADER_SIZE, N64_ROM_BASE, N64_SRAM_BASE, MagicCliError, require_ok
-from .transport import Cfg, MagicSession
+from .transport import Cfg, MagicSession, auto_discover_port, format_port, pico_ports, serial_ports
 
 BANNER_HEADER = (
     "**************************************",
@@ -104,6 +104,8 @@ def _firmware_build_tag(cfg: Cfg) -> str:
         msg = str(exc)
         if "does not support cmd 0x03" in msg:
             return "legacy-fw (no version cmd)"
+        if "Pico serial port" in msg:
+            return "unavailable (port not selected; use U -> P)"
         return f"unavailable ({msg})"
     except OSError as exc:
         return f"unavailable ({exc})"
@@ -123,8 +125,9 @@ def _print_banner(cfg: Cfg) -> None:
 
 def _render_menu(menu_id: str, cfg: Cfg) -> None:
     title, items = MENUS[menu_id]
+    port_text = cfg.port or "(not selected; use U -> P)"
     print(f"\n=== {title} ===")
-    print(f"[port={cfg.port} baud={cfg.baud} timeout={cfg.timeout}s]")
+    print(f"[port={port_text} baud={cfg.baud} timeout={cfg.timeout}s]")
     for key, desc, _action in items:
         print(f" {key}) {desc}")
     print("")
@@ -355,9 +358,41 @@ def _menu_action_hexdump_file() -> None:
 
 
 def _menu_action_set_port(cfg: Cfg) -> None:
-    new_port = input(f"Port [{cfg.port}]: ").strip()
+    candidates = pico_ports()
+    if candidates:
+        print("\nDetected Pico serial ports:")
+        for idx, port in enumerate(candidates, start=1):
+            print(f"  {idx}) {format_port(port)}")
+    else:
+        ports = serial_ports()
+        if ports:
+            print("\nSerial ports:")
+            for idx, port in enumerate(ports, start=1):
+                print(f"  {idx}) {format_port(port)}")
+        else:
+            print("\nNo serial ports detected.")
+        print("On Windows, check Device Manager -> Ports (COM & LPT) for the Pico COM port.")
+
+    current = cfg.port or "auto"
+    new_port = input(f"Port [{current}] (number or COM5 / /dev/ttyACM0): ").strip()
+    if not new_port:
+        if not cfg.port:
+            detected = auto_discover_port()
+            if detected:
+                cfg.port = detected
+                print(f"Auto-selected {cfg.port}")
+        return
+    if new_port.isdigit():
+        idx = int(new_port, 10) - 1
+        ports = candidates or serial_ports()
+        if 0 <= idx < len(ports):
+            cfg.port = ports[idx].device
+            print(f"Port set to {cfg.port}")
+            return
+        raise MagicCliError(f"Port selection {new_port} is out of range")
     if new_port:
         cfg.port = new_port
+        print(f"Port set to {cfg.port}")
 
 
 def _menu_action_set_timeout(cfg: Cfg) -> None:
