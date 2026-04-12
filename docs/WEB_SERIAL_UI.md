@@ -22,8 +22,8 @@ Open `host-tools/web/index.html` directly in your browser. It runs entirely clie
 
 The UI can automatically identify cartridges using the bundled ROM catalog:
 
-1. Open the Web UI; it attempts to load `host-tools/web/n64.txt`.
-2. If the browser blocks automatic local-file loading, drop the `n64.txt` file onto the catalog drop zone.
+1. Open the Web UI; it loads the bundled catalog from `host-tools/web/n64_catalog.js`.
+2. To override it later, drop the `n64.txt` file onto the catalog drop zone.
 3. Once loaded, the catalog persists for the session.
 
 With the catalog loaded, rescanning a cartridge reports the game title, region, save type, and ROM size.

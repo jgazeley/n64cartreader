@@ -139,6 +139,14 @@ function downloadBlob(data, filename) {
 
 // ── Catalog loading ──
 async function loadCatalog() {
+  if (typeof window.N64_CATALOG_TEXT === 'string' && window.N64_CATALOG_TEXT.length > 0) {
+    const count = setCatalog(parseN64Txt(window.N64_CATALOG_TEXT));
+    log(`Bundled catalog loaded: ${count} entries`, 'ok');
+    $('catalog-status').textContent = `${count} games loaded`;
+    $('catalog-drop').style.display = 'none';
+    return;
+  }
+
   try {
     const resp = await fetch('n64.txt');
     if (resp.ok) {

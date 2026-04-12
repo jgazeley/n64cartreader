@@ -40,7 +40,7 @@ If the cartridge contacts are dirty, clean them with isopropyl alcohol and a cot
 2. Click **Connect** and select the Pico's serial port.
 3. The UI detects the cartridge and shows game info, save type, and available operations.
 
-No software installation required. Works on any OS with a supported browser. The Web UI includes `n64.txt` in the same folder for cartridge identification; if the browser does not load it automatically, drag `n64.txt` onto the catalog drop zone.
+No software installation required. Works on any OS with a supported browser. The Web UI includes a bundled cartridge catalog for automatic identification; if you ever need to override it, drag `n64.txt` onto the catalog drop zone.
 
 ### Option B: Python CLI (recommended for users without a Chromium-based browser)
 
