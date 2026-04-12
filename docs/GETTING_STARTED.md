@@ -42,6 +42,18 @@ If the cartridge contacts are dirty, clean them with isopropyl alcohol and a cot
 
 No software installation required. Works on any OS with a supported browser.
 
+If you open the HTML file directly, the browser may block automatic loading of the bundled `host-tools/n64.txt` catalog. Drag `n64.txt` onto the catalog drop zone, or run a local server from the repo root and open `http://localhost:8000/host-tools/web/`:
+
+```bash
+python3 -m http.server 8000
+```
+
+On Windows:
+
+```powershell
+py -m http.server 8000
+```
+
 ### Option B: Python CLI (recommended for users without a Chromium-based browser)
 
 The Python CLI auto-detects the Pico when exactly one Pico serial device is connected. If multiple Pico devices are connected, or if auto-detect fails, specify the port manually with `--port`.

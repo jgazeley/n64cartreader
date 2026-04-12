@@ -149,8 +149,16 @@ async function loadCatalog() {
       $('catalog-drop').style.display = 'none';
       return;
     }
-  } catch {}
-  log('n64.txt not found — drop it below or select save type manually', 'info');
+  } catch (e) {
+    if (window.location.protocol === 'file:') {
+      log(
+        'Browser blocked automatic n64.txt loading from file://. Drop n64.txt below, or serve the repo from localhost to auto-load it.',
+        'info'
+      );
+      return;
+    }
+  }
+  log('n64.txt not found at ../n64.txt — drop it below or select save type manually', 'info');
 }
 
 function loadCatalogFromFile(file) {

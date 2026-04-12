@@ -12,6 +12,15 @@ The N64 Pico Cart Reader V2 includes a browser-based interface that communicates
 
 Open `host-tools/web/index.html` directly in your browser. It runs entirely client-side — no server or internet connection needed.
 
+Direct file opening still requires manually dropping `host-tools/n64.txt` into the catalog drop zone because browsers commonly block JavaScript from reading neighboring local files. To auto-load the bundled catalog, serve the repo from a local HTTP server:
+
+```bash
+cd n64cartreader
+python3 -m http.server 8000
+```
+
+Then open `http://localhost:8000/host-tools/web/`.
+
 ## Connecting
 
 1. Click **Connect**.
@@ -20,10 +29,11 @@ Open `host-tools/web/index.html` directly in your browser. It runs entirely clie
 
 ## Loading the Cart Catalog
 
-The UI can automatically identify cartridges using the built-in ROM catalog:
+The UI can automatically identify cartridges using the `n64.txt` ROM catalog:
 
-1. Drop the `n64.txt` file (included at `host-tools/n64.txt`) onto the catalog drop zone.
-2. Once loaded, the catalog persists for the session.
+1. If using a local HTTP server, the UI attempts to load `host-tools/n64.txt` automatically.
+2. If opening `index.html` directly, drop the `n64.txt` file (included at `host-tools/n64.txt`) onto the catalog drop zone.
+3. Once loaded, the catalog persists for the session.
 
 With the catalog loaded, rescanning a cartridge reports the game title, region, save type, and ROM size.
 
