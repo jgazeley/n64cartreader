@@ -119,6 +119,14 @@ function filenameStem() {
   return (headerTitle || $('cart-title').textContent).trim().replace(/\s+/g, '_') || 'save';
 }
 
+function timestampStem(date = new Date()) {
+  const pad = value => String(value).padStart(2, '0');
+  return (
+    `${date.getFullYear()}${pad(date.getMonth() + 1)}${pad(date.getDate())}_` +
+    `${pad(date.getHours())}${pad(date.getMinutes())}${pad(date.getSeconds())}`
+  );
+}
+
 function downloadBlob(data, filename) {
   const blob = new Blob([data], { type: 'application/octet-stream' });
   const url = URL.createObjectURL(blob);
@@ -377,7 +385,7 @@ $('btn-export-mpk').addEventListener('click', async () => {
     const data = await doExportMpk(makeChunkProgress('Exporting Memory Pak', 32768));
     hideProgress();
     const crc = crc16(data);
-    downloadBlob(data, `${filenameStem()}.mpk`);
+    downloadBlob(data, `controller_pak_${timestampStem()}.mpk`);
     log(`MPK exported ${data.length} bytes, CRC16=0x${crc.toString(16).toUpperCase()}`, 'ok');
   } catch (e) {
     hideProgress();
