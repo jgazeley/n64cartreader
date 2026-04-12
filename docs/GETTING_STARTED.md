@@ -8,7 +8,7 @@
 - **One or more retail N64 cartridges**
 
 Optional:
-- **N64 Controller** with Controller Pak (for MPK backup)
+- **N64 Controller** with Controller Pak (for MPK backup/restore)
 - **GameShark Pro** cartridge (for GameShark backup/restore)
 
 ## Step 1: Flash the Firmware
@@ -40,19 +40,7 @@ If the cartridge contacts are dirty, clean them with isopropyl alcohol and a cot
 2. Click **Connect** and select the Pico's serial port.
 3. The UI detects the cartridge and shows game info, save type, and available operations.
 
-No software installation required. Works on any OS with a supported browser.
-
-If you open the HTML file directly, the browser may block automatic loading of the bundled `host-tools/n64.txt` catalog. Drag `n64.txt` onto the catalog drop zone, or run a local server from the repo root and open `http://localhost:8000/host-tools/web/`:
-
-```bash
-python3 -m http.server 8000
-```
-
-On Windows:
-
-```powershell
-py -m http.server 8000
-```
+No software installation required. Works on any OS with a supported browser. The Web UI includes `n64.txt` in the same folder for cartridge identification; if the browser does not load it automatically, drag `n64.txt` onto the catalog drop zone.
 
 ### Option B: Python CLI (recommended for users without a Chromium-based browser)
 

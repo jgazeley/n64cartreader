@@ -140,11 +140,11 @@ function downloadBlob(data, filename) {
 // ── Catalog loading ──
 async function loadCatalog() {
   try {
-    const resp = await fetch('../n64.txt');
+    const resp = await fetch('n64.txt');
     if (resp.ok) {
       const text = await resp.text();
       const count = setCatalog(parseN64Txt(text));
-      log(`Catalog loaded: ${count} entries from ../n64.txt`, 'ok');
+      log(`Catalog loaded: ${count} entries from n64.txt`, 'ok');
       $('catalog-status').textContent = `${count} games loaded`;
       $('catalog-drop').style.display = 'none';
       return;
@@ -152,13 +152,13 @@ async function loadCatalog() {
   } catch (e) {
     if (window.location.protocol === 'file:') {
       log(
-        'Browser blocked automatic n64.txt loading from file://. Drop n64.txt below, or serve the repo from localhost to auto-load it.',
+        'Browser blocked automatic n64.txt loading from file://. Drop n64.txt below to load it manually.',
         'info'
       );
       return;
     }
   }
-  log('n64.txt not found at ../n64.txt — drop it below or select save type manually', 'info');
+  log('n64.txt not found — drop it below or select save type manually', 'info');
 }
 
 function loadCatalogFromFile(file) {
