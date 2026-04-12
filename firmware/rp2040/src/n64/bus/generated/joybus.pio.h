@@ -13,42 +13,47 @@
 // ------ //
 
 #define joybus_wrap_target 0
-#define joybus_wrap 20
+#define joybus_wrap 25
 
 #define joybus_offset_inmode 0u
 #define joybus_offset_outmode 6u
-#define joybus_offset_clockgen 17u
+#define joybus_offset_clockgen 22u
 
 static const uint16_t joybus_program_instructions[] = {
             //     .wrap_target
-    0xe080, //  0: set    pindirs, 0
-    0x3f20, //  1: wait   0 pin, 0               [31]
-    0xbf42, //  2: nop                           [31]
+    0xe080, //  0: set    pindirs, 0                 [inmode]
+    0x3f20, //  1: wait   0 pin, 0               [31] [inagain]
+    0xbf42, //  2: nop                            [31]
     0x4001, //  3: in     pins, 1
     0x20a0, //  4: wait   1 pin, 0
     0x0001, //  5: jmp    1
-    0xe001, //  6: set    pins, 1
-    0xe081, //  7: set    pindirs, 1
-    0x80e0, //  8: pull   ifempty block
+    0xe000, //  6: set    pins, 0                     [outmode: OD pin=0 always]
+    0xe080, //  7: set    pindirs, 0                  [start hi-Z]
+    0x80e0, //  8: pull   ifempty block               [outagain]
     0x6021, //  9: out    x, 1
     0x6041, // 10: out    y, 1
     0x0060, // 11: jmp    !y, 0
-    0xf800, // 12: set    pins, 0                [24]
-    0xb801, // 13: mov    pins, x                [24]
-    0xb801, // 14: mov    pins, x                [24]
-    0xf301, // 15: set    pins, 1                [19]
-    0x0008, // 16: jmp    8
-    0xe081, // 17: set    pindirs, 1
-    0xe501, // 18: set    pins, 1                [5]
-    0xe400, // 19: set    pins, 0                [4]
-    0x0012, // 20: jmp    18
+    0xf781, // 12: set    pindirs, 1               [23] [pull LOW 25cy]
+    0x0032, // 13: jmp    !x, 18                       [branch on bit]
+    0xf880, // 14: set    pindirs, 0               [24] [1-bit: release]
+    0xb842, // 15: nop                             [24]
+    0xb342, // 16: nop                             [19]
+    0x0008, // 17: jmp    8
+    0xb842, // 18: nop                             [24] [od_zero: stay LOW]
+    0xb842, // 19: nop                             [24]
+    0xf380, // 20: set    pindirs, 0               [19] [release]
+    0x0008, // 21: jmp    8
+    0xe081, // 22: set    pindirs, 1                   [clockgen]
+    0xe501, // 23: set    pins, 1                  [5]  [clockstart]
+    0xe400, // 24: set    pins, 0                  [4]
+    0x0017, // 25: jmp    23
             //     .wrap
 };
 
 #if !PICO_NO_HARDWARE
 static const struct pio_program joybus_program = {
     .instructions = joybus_program_instructions,
-    .length = 21,
+    .length = 26,
     .origin = -1,
 };
 
@@ -58,4 +63,3 @@ static inline pio_sm_config joybus_program_get_default_config(uint offset) {
     return c;
 }
 #endif
-

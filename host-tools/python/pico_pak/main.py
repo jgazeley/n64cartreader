@@ -34,6 +34,7 @@ from .n64_ops import (
     n64_mx29lv640_export_window_stream,
     n64_rescan,
     n64_rescan_and_configure,
+    n64_repro_eeprom_diag,
     n64_repro_read_word,
     n64_repro_rom_diagnostic,
     n64_rom_flash_erase,
@@ -162,6 +163,20 @@ def parser() -> argparse.ArgumentParser:
         "--reset-carrier",
         action="store_true",
         help="Send the repro flash-id reset carrier before reading the word",
+    )
+    p_eediag = sub.add_parser(
+        "n64-repro-eeprom-diag",
+        help="Experimental non-destructive EEPROM/Joybus diagnostic for repro save bridges",
+    )
+    p_eediag.add_argument(
+        "--park-adbus-zero",
+        action="store_true",
+        help="Latch AD bus address 0 before probing Joybus EEPROM",
+    )
+    p_eediag.add_argument(
+        "--reset-line",
+        action="store_true",
+        help="Pulse the cartridge reset line before probing Joybus EEPROM",
     )
     p_mx29 = sub.add_parser(
         "n64-mx29-export-window-stream",
@@ -616,6 +631,19 @@ def main() -> int:
                     reset_carrier=args.reset_carrier,
                 )
                 print(f"Repro ROM word at 0x{args.offset:06X}: 0x{word:04X}")
+
+            elif args.sub == "n64-repro-eeprom-diag":
+                result = n64_repro_eeprom_diag(
+                    sess,
+                    park_adbus_zero=args.park_adbus_zero,
+                    reset_line=args.reset_line,
+                )
+                print("Experimental repro EEPROM diagnostic:")
+                print(f"  options  : 0x{result['options']:02X}")
+                print(f"  reset_ok : {result['reset_ok']} rx={bytes(result['reset_rx']).hex(' ')}")
+                print(f"  info_ok  : {result['info_ok']} rx={bytes(result['info_rx']).hex(' ')}")
+                print(f"  read_ok  : {result['read_ok']} data={bytes(result['read_data']).hex(' ')}")
+                print(f"  CRC16    : 0x{result['crc16']:04X}")
 
             elif args.sub == "n64-mx29-export-window-stream":
                 data = n64_mx29lv640_export_window_stream(sess, args.offset)

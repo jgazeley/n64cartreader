@@ -16,18 +16,25 @@ inagain: ;
     jmp inagain ;
 ;
 PUBLIC outmode: ; External code must force a jump here in reaction to the RX FIFO contents
-    set pins, 1 ;
-    set pindirs, 1 ;
+    set pins, 0 ;       Open-drain: pin output value always LOW
+    set pindirs, 0 ;    Start released (hi-Z); pull-up holds line high
 outagain: ;
     pull ifempty block ; On pull 1 et ensuite on l'utilise pour X ET Y ?
     out X, 1 ; X = what should we output
     out Y, 1 ; Y = should we output something
     jmp !Y inmode ; if Y 0, empty the queue
-    set pins, 0 [ 24 ] ;
-    mov pins, X [ 24 ] ;
-    mov pins, X [ 24 ] ;
-    set pins, 1 [ 19 ] ;
-    jmp outagain ;
+    set pindirs, 1 [ 23 ] ;  Pull LOW (25 cy = 1us)
+    jmp !X od_zero ;         Branch: 0-bit stays low longer
+    set pindirs, 0 [ 24 ] ; 1-bit: release (25 cy hi-Z)
+    nop [ 24 ] ;             (25 cy hi-Z)
+    nop [ 19 ] ;             (20 cy hi-Z)
+    jmp outagain ;           (1 cy hi-Z) total hi-Z=4+71=75cy=3us
+od_zero: ;
+    nop [ 24 ] ;             0-bit: stay LOW (25 cy)
+    nop [ 24 ] ;             (25 cy LOW) total LOW=75cy=3us
+    set pindirs, 0 [ 19 ] ; release (20 cy hi-Z)
+    jmp outagain ;           (1 cy hi-Z) total hi-Z=4+21=25cy=1us
+;
 ;
 PUBLIC clockgen:
     set pindirs, 1 ;

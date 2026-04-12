@@ -18,6 +18,10 @@
 // Headless mode: keep serial stream binary-clean for raw host protocol.
 #define printf(...) ((void)0)
 
+#define JOYBUS_DATA_CLKDIV 5.0f
+// clockgen loop is 12 PIO cycles; 125 MHz / 5.208333 / 12 = 2.0 MHz.
+#define EEPROM_CLOCK_CLKDIV 5.208333f
+
 uint32_t ReadCount = 0;
 uint32_t gEepromSize = 0;
 static bool s_eeprom_probe_collision = false;
@@ -142,7 +146,7 @@ void __time_critical_func(InitEepromClock)(uint clockpin)
     pio_sm_config config1 = joybus_program_get_default_config(s_clock_pio_offset);
     //sm_config_set_out_pins(&config1, clockpin, 1);
     sm_config_set_set_pins(&config1, clockpin, 1);
-    sm_config_set_clkdiv(&config1, 5);
+    sm_config_set_clkdiv(&config1, EEPROM_CLOCK_CLKDIV);
     //sm_config_set_out_shift(&config1, true, false, 32);
     //sm_config_set_in_shift(&config1, false, true, 8);
 
@@ -165,7 +169,7 @@ static void joybus_init_data_sm(uint dataPin)
     sm_config_set_in_pins(&config, dataPin);
     sm_config_set_out_pins(&config, dataPin, 1);
     sm_config_set_set_pins(&config, dataPin, 1);
-    sm_config_set_clkdiv(&config, 5);
+    sm_config_set_clkdiv(&config, JOYBUS_DATA_CLKDIV);
     sm_config_set_out_shift(&config, true, false, 32);
     sm_config_set_in_shift(&config, false, true, 8);
 
@@ -467,4 +471,3 @@ retry_transfer:
 
     return false;
 }
-

@@ -18,6 +18,7 @@ from .protocol import (
     CMD_N64_IMPORT_MPK,
     CMD_N64_IMPORT_SAVE,
     CMD_N64_RESCAN,
+    CMD_N64_REPRO_EEPROM_DIAG,
     CMD_N64_REPRO_READ_WORD,
     CMD_N64_ROM_INFO,
     CMD_N64_ROM_FLASH_ERASE,
@@ -355,6 +356,30 @@ def n64_repro_read_word(
         _read_once(byte_offset)
 
     return _read_once(byte_offset)
+
+
+def n64_repro_eeprom_diag(
+    sess: MagicSession,
+    *,
+    park_adbus_zero: bool = False,
+    reset_line: bool = False,
+) -> dict[str, object]:
+    """Run a non-destructive EEPROM/Joybus diagnostic for repro save bridges."""
+    options = (1 if park_adbus_zero else 0) | (2 if reset_line else 0)
+    sess.send_cmd(CMD_N64_REPRO_EEPROM_DIAG, arg0=options)
+    data = sess.recv_reliable(18)
+    cmd, st, value = sess.recv_rsp(CMD_N64_REPRO_EEPROM_DIAG)
+    require_ok(cmd, st, value)
+    return {
+        "options": data[0],
+        "reset_ok": bool(data[1]),
+        "reset_rx": data[2:5],
+        "info_ok": bool(data[5]),
+        "info_rx": data[6:9],
+        "read_ok": bool(data[9]),
+        "read_data": data[10:18],
+        "crc16": value,
+    }
 
 
 def n64_mx29lv640_export_window_stream(sess: MagicSession, byte_offset: int) -> bytes:

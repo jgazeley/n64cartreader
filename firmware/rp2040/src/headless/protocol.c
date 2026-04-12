@@ -4,6 +4,7 @@
 #include "utils/crc.h"
 #include "utils/packet.h"
 #include "utils/transport.h"
+#include "n64/bus/adbus.h"
 #include "n64/bus/joybus.h"
 #include "n64/devices/gamepak.h"
 #include "n64/devices/gamepak_repro.h"
@@ -86,6 +87,7 @@ enum {
     // a read-only aliasing diagnostic rather than a write test.
     CMD_N64_ROM_FLASH_WRITE_TEST = 0x53,
     CMD_N64_REPRO_READ_WORD      = 0x54,
+    CMD_N64_REPRO_EEPROM_DIAG    = 0x55,
     CMD_N64_MX29LV640_EXPORT_WINDOW_STREAM = 0x63,
 };
 
@@ -617,6 +619,44 @@ static bool n64_controller_poll_stream(bool rumble, uint16_t *out_crc) {
     return true;
 }
 
+static bool n64_repro_eeprom_diag_stream(uint8_t options, uint16_t *out_crc) {
+    if (!out_crc) {
+        return false;
+    }
+
+    // Payload layout:
+    // [0] options
+    // [1] reset_ok, [2..4] reset/info response to 0xFF
+    // [5] info_ok,  [6..8] info response to 0x00
+    // [9] read_ok,  [10..17] block 0 data from 0x04 0x00
+    uint8_t payload[18];
+    memset(payload, 0xFF, sizeof(payload));
+    payload[0] = options;
+
+    if ((options & 0x01u) != 0u) {
+        adbus_latch_address(0x00000000u);
+        sleep_ms(10);
+    }
+    if ((options & 0x02u) != 0u) {
+        joybus_reset();
+        sleep_ms(50);
+    }
+
+    const uint8_t reset_cmd[] = { 0xFF };
+    payload[1] = joybus_transfer(reset_cmd, sizeof(reset_cmd), &payload[2], 3, 10000u, 3u) ? 1u : 0u;
+    sleep_ms(10);
+
+    const uint8_t info_cmd[] = { 0x00 };
+    payload[5] = joybus_transfer(info_cmd, sizeof(info_cmd), &payload[6], 3, 10000u, 3u) ? 1u : 0u;
+    sleep_ms(10);
+
+    const uint8_t read_cmd[] = { 0x04, 0x00 };
+    payload[9] = joybus_transfer(read_cmd, sizeof(read_cmd), &payload[10], 8, 10000u, 3u) ? 1u : 0u;
+
+    *out_crc = crc16_update(0, payload, sizeof(payload));
+    return packet_send_reliable(payload, sizeof(payload), 0);
+}
+
 static bool n64_export_mpk_stream(uint16_t *out_crc) {
     if (!controller_mempak_present()) {
         *out_crc = 0xE901u;
@@ -1137,6 +1177,16 @@ void headless_protocol_poll(void) {
             } else {
                 uint16_t word = ((uint16_t)raw_word[0] << 8) | raw_word[1];
                 (void)send_response(cmd.cmd, ST_OK, word);
+            }
+            break;
+        }
+
+        case CMD_N64_REPRO_EEPROM_DIAG: {
+            uint16_t running_crc = 0;
+            if (n64_repro_eeprom_diag_stream(cmd.arg0, &running_crc)) {
+                (void)send_response(cmd.cmd, ST_OK, running_crc);
+            } else {
+                (void)send_response(cmd.cmd, ST_IO_ERR, running_crc);
             }
             break;
         }
