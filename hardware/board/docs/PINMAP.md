@@ -10,8 +10,8 @@
 | **RD_STROBE** | `GPIO18` | GPIO18 | /READ | Active-Low |
 | **ALE_H** | `GPIO19` | GPIO19 | ALE_H | Address Latch High |
 | **ALE_L** | `GPIO20` | GPIO20 | ALE_L | Address Latch Low |
-| **JOY/EE_DATA** | `GPIO21` | GPIO21 | JOYBUS / DATA | Shared Data Line |
-| **EE_CLOCK** | `GPIO22` | GPIO22 | EEPROM_CLK | I2C-style Clock |
+| **EEPROM DATA** | `GPIO21` | GPIO21 | EE_DAT | Shared Joybus data line for cartridge EEPROM/RTC and controller |
+| **EEPROM CLK** | `GPIO22` | GPIO22 | EE_CLK | Clock for cartridge EEPROM transfers |
 
 ## Power Requirements
 - **VCC:** +3.3V (RP2040 and N64 Logic)

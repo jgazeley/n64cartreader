@@ -40,7 +40,7 @@ If the cartridge contacts are dirty, clean them with isopropyl alcohol and a cot
 2. Click **Connect** and select the Pico's serial port.
 3. The UI detects the cartridge and shows game info, save type, and available operations.
 
-No software installation required. Works on any OS with a supported browser. The Web UI includes a bundled cartridge catalog for automatic identification; if you ever need to override it, drag `n64.txt` onto the catalog drop zone.
+No software installation required. Works on any OS with a supported browser. The Web UI includes a bundled cartridge catalog for automatic identification; if you ever need to override it, drag `host-tools/n64.txt` onto the catalog drop zone.
 
 ### Option B: Python CLI (recommended for users without a Chromium-based browser)
 
@@ -48,27 +48,34 @@ The Python CLI auto-detects the Pico when exactly one Pico serial device is conn
 
 On Windows, open **Device Manager -> Ports (COM & LPT)** and look for the Pico/USB serial port, then use that COM name, for example `--port COM5`. In the interactive CLI, choose **U -> P** to list detected ports and set the port without restarting the program.
 
+The examples below use `python3`; on Windows, use `python` or `py` instead if that is how Python is installed on your system.
+
 ```bash
 cd host-tools/python
 
 # Check firmware version (auto-detects if exactly one Pico is connected)
 python3 pico_pak_n64_magic_cli.py fw-version
 
-# Check firmware version (Windows - replace COM5 with your actual port)
-python pico_pak_n64_magic_cli.py --port COM5 fw-version
+# Check firmware version with an explicit port, if needed
+python3 pico_pak_n64_magic_cli.py --port <PORT> fw-version
 
-# Identify the cartridge (Linux explicit-port example)
-python3 pico_pak_n64_magic_cli.py --port /dev/ttyACM0 n64-cart-id --rescan
+# Identify the cartridge
+python3 pico_pak_n64_magic_cli.py --port <PORT> n64-cart-id --rescan
 
 # Export save data
-python3 pico_pak_n64_magic_cli.py --port /dev/ttyACM0 n64-export --out save.bin --sha256
+python3 pico_pak_n64_magic_cli.py --port <PORT> n64-export --out save.bin --sha256
 
 # Import save data with verification
-python3 pico_pak_n64_magic_cli.py --port /dev/ttyACM0 n64-import --in save.bin --verify
+python3 pico_pak_n64_magic_cli.py --port <PORT> n64-import --in save.bin --verify
 
 # Dump the full ROM
-python3 pico_pak_n64_magic_cli.py --port /dev/ttyACM0 n64-rom-dump --out game.z64
+python3 pico_pak_n64_magic_cli.py --port <PORT> n64-rom-dump --out game.z64
 ```
+
+Common port formats:
+- **Windows:** `COM5`
+- **macOS:** `/dev/tty.usbmodemXXXX`
+- **Linux:** `/dev/ttyACM0`
 
 Requirements: Python 3.10+ and pyserial. If on Windows, install Python from python.org and check "Add python.exe to PATH" during setup. Install with:
 
@@ -113,13 +120,13 @@ picotool will automatically reboot the Pico into BOOTSEL mode, flash, and restar
 
 ## Identifying Your Hardware
 
-If you have multiple Pico units connected, use the serial number to identify them:
+For one reader, the Web UI port picker or Python CLI auto-detect is usually enough. If multiple Pico readers are connected, identify the right one by unplugging the other readers temporarily, or use the operating system's port list:
 
-```bash
-ls -l /dev/serial/by-id/
-```
+- **Windows:** Open **Device Manager -> Ports (COM & LPT)** and look for the Pico/USB serial device, such as `COM5`.
+- **macOS:** Check **System Information -> USB**, or list serial devices with `ls /dev/tty.usbmodem*`.
+- **Linux:** List serial devices with `ls /dev/ttyACM*`; for stable names that include the USB serial number, use `ls -l /dev/serial/by-id/`.
 
-This shows stable symlinks that encode the Pico's unique serial number, regardless of which `/dev/ttyACM` index the OS assigned.
+In the Python interactive CLI, choose **U -> P** to list detected ports and set the active port without restarting.
 
 ## Next Steps
 

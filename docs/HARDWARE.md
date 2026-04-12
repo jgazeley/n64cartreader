@@ -23,8 +23,8 @@ The RP2040 GPIO assignments are defined in `firmware/rp2040/include/n64/pins.h`.
 | /READ | GPIO 18 | /RD | Active-low read strobe |
 | ALE_H | GPIO 19 | ALE_H | Address latch enable (high byte) |
 | ALE_L | GPIO 20 | ALE_L | Address latch enable (low byte) |
-| JOY/EE_DATA | GPIO 21 | JOY_EE_DATA | Shared Joybus data line for cartridge EEPROM and controller |
-| EEPROM CLK | GPIO 22 | EE_CLK | Clock for Joybus transfers |
+| EEPROM DATA | GPIO 21 | EE_DAT | Shared Joybus data line for cartridge EEPROM/RTC and controller |
+| EEPROM CLK | GPIO 22 | EE_CLK | Clock for cartridge EEPROM transfers |
 
 ### Power
 
