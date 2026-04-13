@@ -527,7 +527,8 @@ static bool n64_export_rom_stream(uint16_t *out_crc) {
         return false;
     }
 
-    uint8_t chunk[512];
+    enum { ROM_EXPORT_CHUNK_BYTES = 2048 };
+    static uint8_t chunk[ROM_EXPORT_CHUNK_BYTES];
     uint16_t running_crc = 0;
     uint8_t seq = 0;
 
