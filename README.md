@@ -43,16 +43,17 @@ python3 host-tools/python/pico_pak_n64_magic_cli.py --port /dev/ttyACM0 n64-cart
 
 ```
 firmware/
-  rp2040/          RP2040 headless firmware
+  rp2040/          C-based firmware for the Raspberry Pi Pico (timing-critical bus logic)
 host-tools/
-  python/           Python CLI and validation tools
-  web/              Web Serial browser UI
+  powershell/      Easiest CLI for Windows (no setup needed); also supports macOS/Linux
+  python/          Cross-platform CLI for validation, diagnostics, and batch scripts
+  web/             Driverless, browser-based interface using Web Serial
 hardware/
-  board/            V2 single-board KiCad project
+  board/           V2 hardware project (KiCad PCB, schematics, and BOM)
 enclosure/
-  board/            3D-printable case (FreeCAD source + STL)
-docs/               Documentation
-LICENSES/           Third-party license texts
+  board/           3D-printable protective case (FreeCAD and STL files)
+docs/              Technical guides, hardware documentation, and troubleshooting
+LICENSES/          Third-party license texts for shared components
 ```
 
 ## Web Serial UI
@@ -88,7 +89,7 @@ python3 n64_validation_matrix.py --port /dev/ttyACM0
 
 ## PowerShell CLI
 
-Zero-dependency alternative to the Python CLI. Works with PowerShell 5.1 (built into Windows) or PowerShell 7+ (`pwsh`) on any platform. See [Getting Started](docs/GETTING_STARTED.md) for Windows execution policy setup.
+The easiest option for Windows users (no installation required). Works with the built-in PowerShell 5.1 or PowerShell 7+ (`pwsh`) on any platform. See [Getting Started](docs/GETTING_STARTED.md) for Windows execution policy setup.
 
 ```powershell
 # Interactive menu (use COMx on Windows, /dev/ttyACM0 on Linux)
