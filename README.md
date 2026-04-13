@@ -27,11 +27,16 @@ See [docs/GETTING_STARTED.md](docs/GETTING_STARTED.md) for full setup instructio
 
 1. Flash the `pico_headless_demo.uf2` firmware to your Pico (hold BOOTSEL while plugging in USB, then drag the file onto the drive).
 2. Insert an N64 cartridge.
-3. Open the [Web Serial UI](host-tools/web/index.html) in Chrome or Edge, or use the Python CLI:
+3. Open the [Web Serial UI](host-tools/web/index.html) in Chrome or Edge, or use a CLI:
 
+**Windows (PowerShell):**
+```powershell
+./host-tools/powershell/N64CartReader.ps1 -Port COM5
+```
+
+**macOS/Linux (Python):**
 ```bash
-cd host-tools/python
-python3 pico_pak_n64_magic_cli.py --port /dev/ttyACM0 n64-cart-id --rescan
+python3 host-tools/python/pico_pak_n64_magic_cli.py --port /dev/ttyACM0 n64-cart-id --rescan
 ```
 
 ## Project Layout
@@ -86,17 +91,17 @@ python3 n64_validation_matrix.py --port /dev/ttyACM0
 Zero-dependency alternative to the Python CLI. Works with PowerShell 5.1 (built into Windows) or PowerShell 7+ (`pwsh`) on any platform. See [Getting Started](docs/GETTING_STARTED.md) for Windows execution policy setup.
 
 ```powershell
-# Interactive menu (dump ROM, export/import saves)
-pwsh host-tools/powershell/N64CartReader.ps1 -Port /dev/ttyACM0
+# Interactive menu (use COMx on Windows, /dev/ttyACM0 on Linux)
+./host-tools/powershell/N64CartReader.ps1 -Port COM5
 
 # Export a save
-pwsh host-tools/powershell/Export-Save.ps1 -Port /dev/ttyACM0 -Out my_save.bin
+./host-tools/powershell/Export-Save.ps1 -Port COM5 -Out my_save.bin
 
 # Import a save with verification
-pwsh host-tools/powershell/Import-Save.ps1 -Port /dev/ttyACM0 -In my_save.bin -Verify
+./host-tools/powershell/Import-Save.ps1 -Port COM5 -In my_save.bin -Verify
 
 # Dump the full ROM
-pwsh host-tools/powershell/Dump-Rom.ps1 -Port /dev/ttyACM0 -Out my_rom.z64
+./host-tools/powershell/Dump-Rom.ps1 -Port COM5 -Out my_rom.z64
 ```
 
 ## Building the Firmware
