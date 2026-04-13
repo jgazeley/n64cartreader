@@ -45,9 +45,9 @@ python3 host-tools/python/pico_pak_n64_magic_cli.py --port /dev/ttyACM0 n64-cart
 firmware/
   rp2040/          C-based firmware for the Raspberry Pi Pico (timing-critical bus logic)
 host-tools/
-  powershell/      Easiest CLI for Windows (no setup needed); also supports macOS/Linux
+  powershell/      Native CLI for Windows (no setup needed); also supports macOS/Linux
   python/          Cross-platform CLI for validation, diagnostics, and batch scripts
-  web/             Driverless, browser-based interface using Web Serial
+  web/             Easiest, driverless browser-based interface using Web Serial
 hardware/
   board/           V2 hardware project (KiCad PCB, schematics, and BOM)
 enclosure/
@@ -58,9 +58,9 @@ LICENSES/          Third-party license texts for shared components
 
 ## Web Serial UI
 
-The browser-based interface works in Chrome and Edge via the Web Serial API. No drivers or software installation required.
+The browser-based interface is the easiest way to use the reader. It works in Chrome and Edge via the Web Serial API. No drivers or software installation required.
 
-Open `host-tools/web/index.html`, click Connect, and the UI will detect your cartridge and present options for ROM dumping, save export/import, and GameShark operations.
+Open `host-tools/web/index.html` directly in your browser, click Connect, and the UI will detect your cartridge and present options for ROM dumping, save export/import, and GameShark operations.
 
 See [docs/WEB_SERIAL_UI.md](docs/WEB_SERIAL_UI.md) for details.
 
@@ -89,7 +89,7 @@ python3 n64_validation_matrix.py --port /dev/ttyACM0
 
 ## PowerShell CLI
 
-The easiest option for Windows users (no installation required). Works with the built-in PowerShell 5.1 or PowerShell 7+ (`pwsh`) on any platform. See [Getting Started](docs/GETTING_STARTED.md) for Windows execution policy setup.
+A native alternative for Windows users (no installation required). Works with the built-in PowerShell 5.1 or PowerShell 7+ (`pwsh`) on any platform. See [Getting Started](docs/GETTING_STARTED.md) for Windows execution policy setup.
 
 ```powershell
 # Interactive menu (use COMx on Windows, /dev/ttyACM0 on Linux)

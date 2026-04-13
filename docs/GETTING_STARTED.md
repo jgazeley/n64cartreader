@@ -86,9 +86,9 @@ python3 pico_pak_n64_magic_cli.py --port <PORT> n64-import --in save.bin --verif
 python3 pico_pak_n64_magic_cli.py --port <PORT> n64-rom-dump --out game.z64
 ```
 
-### Option C: PowerShell CLI (no install needed on Windows)
+### Option C: PowerShell CLI (native alternative for Windows)
 
-The PowerShell scripts have zero external dependencies -- no pip, no packages, just PowerShell and a USB cable. This makes them the easiest option on Windows where PowerShell is already installed.
+The PowerShell scripts have zero external dependencies -- no pip, no packages, just PowerShell and a USB cable. This makes them a great option on Windows where PowerShell is already installed.
 
 **Windows (PowerShell 5.1 is built in):**
 
