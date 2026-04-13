@@ -98,7 +98,7 @@ Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
 ```
 You only need to do this once. Then run scripts directly:
 ```powershell
-# Interactive menu (dump ROM, export/import saves)
+# Interactive menu (use COMx on Windows)
 .\host-tools\powershell\N64CartReader.ps1 -Port COM5
 
 # Or run individual operations:
@@ -117,7 +117,7 @@ You only need to do this once. Then run scripts directly:
 
 Install PowerShell 7 from https://github.com/PowerShell/PowerShell#get-powershell, then use `pwsh`:
 ```bash
-# Interactive menu
+# Interactive menu (use /dev/tty... on Linux/macOS)
 pwsh host-tools/powershell/N64CartReader.ps1 -Port /dev/ttyACM0
 
 # Export save data
