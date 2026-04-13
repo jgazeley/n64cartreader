@@ -11,6 +11,7 @@ A simple, open-source N64 cartridge reader powered by a Raspberry Pi Pico. Plug 
   - SRAM (e.g. 1080 Snowboarding, Ocarina of Time)
   - EEPROM 4K/16K (e.g. GoldenEye, Super Mario 64)
   - FlashRAM (e.g. Majora's Mask, Pokemon Stadium)
+  *(For a full list of N64 games and their save types, see [Micro-64's Game Save List](http://micro-64.com/database/gamesave.shtml))*
 - **Controller Pak (MPK)** export/import
 - **GameShark** cartridge export/import/restore
 - **Web Serial GUI** — runs in Chrome/Edge, no install required
@@ -78,6 +79,24 @@ python3 pico_pak_n64_magic_cli.py --port /dev/ttyACM0 n64-rom-dump --out my_rom.
 
 # Run the validation matrix
 python3 n64_validation_matrix.py --port /dev/ttyACM0
+```
+
+## PowerShell CLI
+
+Zero-dependency alternative to the Python CLI. Works with PowerShell 5.1 (built into Windows) or PowerShell 7+ (`pwsh`) on any platform. See [Getting Started](docs/GETTING_STARTED.md) for Windows execution policy setup.
+
+```powershell
+# Interactive menu (dump ROM, export/import saves)
+pwsh host-tools/powershell/N64CartReader.ps1 -Port /dev/ttyACM0
+
+# Export a save
+pwsh host-tools/powershell/Export-Save.ps1 -Port /dev/ttyACM0 -Out my_save.bin
+
+# Import a save with verification
+pwsh host-tools/powershell/Import-Save.ps1 -Port /dev/ttyACM0 -In my_save.bin -Verify
+
+# Dump the full ROM
+pwsh host-tools/powershell/Dump-Rom.ps1 -Port /dev/ttyACM0 -Out my_rom.z64
 ```
 
 ## Building the Firmware

@@ -33,7 +33,7 @@ V2 replaced the ATmega2560 with an RP2040 (Raspberry Pi Pico) to address V1's li
 |---|---|---|
 | Logic level | 5V (needs level shifting) | 3.3V native |
 | Storage | SD card on the device | USB streaming to host |
-| Interface | Serial terminal menu | Web Serial GUI + Python CLI |
+| Interface | Serial terminal menu | Web Serial GUI + Python/PowerShell CLI |
 | Speed | ~100 KB/s ROM dump | ~1 MB/s ROM dump |
 | BOM cost | Higher (Mega + shield + SD + RTC + level shifters) | Lower (Pico + PCB + passives) |
 | Build difficulty | Header desoldering required | Standard through-hole/SMD soldering |

@@ -44,6 +44,20 @@ No software installation required. Works on any OS with a supported browser. The
 
 ### Option B: Python CLI (recommended for users without a Chromium-based browser)
 
+Requires Python 3.10+ and pyserial. If on Windows, install Python from python.org and check "Add python.exe to PATH" during setup. Install dependencies with:
+
+**macOS/Linux:**
+```bash
+python3 -m pip install -r host-tools/python/requirements.txt
+```
+
+**Windows:**
+```powershell
+python -m pip install -r host-tools\python\requirements.txt
+# Or if that fails:
+py -m pip install -r host-tools\python\requirements.txt
+```
+
 The Python CLI auto-detects the Pico when exactly one Pico serial device is connected. If multiple Pico devices are connected, or if auto-detect fails, specify the port manually with `--port`.
 
 On Windows, open **Device Manager -> Ports (COM & LPT)** and look for the Pico/USB serial port, then use that COM name, for example `--port COM5`. In the interactive CLI, choose **U -> P** to list detected ports and set the port without restarting the program.
@@ -72,24 +86,51 @@ python3 pico_pak_n64_magic_cli.py --port <PORT> n64-import --in save.bin --verif
 python3 pico_pak_n64_magic_cli.py --port <PORT> n64-rom-dump --out game.z64
 ```
 
-Common port formats:
-- **Windows:** `COM5`
-- **macOS:** `/dev/tty.usbmodemXXXX`
-- **Linux:** `/dev/ttyACM0`
+### Option C: PowerShell CLI (no install needed on Windows)
 
-Requirements: Python 3.10+ and pyserial. If on Windows, install Python from python.org and check "Add python.exe to PATH" during setup. Install with:
+The PowerShell scripts have zero external dependencies -- no pip, no packages, just PowerShell and a USB cable. This makes them the easiest option on Windows where PowerShell is already installed.
 
-**macOS/Linux:**
-```bash
-python3 -m pip install -r requirements.txt
-```
+**Windows (PowerShell 5.1 is built in):**
 
-**Windows:**
+You may need to allow script execution the first time. Open PowerShell and run:
 ```powershell
-python -m pip install -r requirements.txt
-# Or if that fails:
-py -m pip install -r requirements.txt
+Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
 ```
+You only need to do this once. Then run scripts directly:
+```powershell
+# Interactive menu (dump ROM, export/import saves)
+.\host-tools\powershell\N64CartReader.ps1 -Port COM5
+
+# Or run individual operations:
+
+# Export save data
+.\host-tools\powershell\Export-Save.ps1 -Port COM5 -Out save.bin
+
+# Import save data with verification
+.\host-tools\powershell\Import-Save.ps1 -Port COM5 -In save.bin -Verify
+
+# Dump the full ROM
+.\host-tools\powershell\Dump-Rom.ps1 -Port COM5 -Out game.z64
+```
+
+**macOS/Linux (requires PowerShell 7+):**
+
+Install PowerShell 7 from https://github.com/PowerShell/PowerShell#get-powershell, then use `pwsh`:
+```bash
+# Interactive menu
+pwsh host-tools/powershell/N64CartReader.ps1 -Port /dev/ttyACM0
+
+# Export save data
+pwsh host-tools/powershell/Export-Save.ps1 -Port /dev/ttyACM0 -Out save.bin
+
+# Import save data with verification
+pwsh host-tools/powershell/Import-Save.ps1 -Port /dev/ttyACM0 -In save.bin -Verify
+
+# Dump the full ROM
+pwsh host-tools/powershell/Dump-Rom.ps1 -Port /dev/ttyACM0 -Out game.z64
+```
+
+All scripts accept `-SaveType` to override auto-detection (e.g. `-SaveType sram`, `flashram`, `eeprom4k`, `eeprom16k`).
 
 ## Building the Firmware
 

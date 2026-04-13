@@ -33,6 +33,8 @@ Run the commands below from the repository root. Replace `<PORT>` with the detec
 1. Export the existing save:
    ```bash
    python3 host-tools/python/pico_pak_n64_magic_cli.py --port <PORT> n64-export --out mfg_test_save.bin
+   # Or using PowerShell:
+   # pwsh host-tools/powershell/Export-Save.ps1 -Port <PORT> -Out mfg_test_save.bin -Rescan
    ```
 2. Verify the export completes successfully.
 3. If a golden reference is available, run `host-tools/python/n64_cart_verify.py` for a write/readback verification cycle. Do not write test data to a customer or collector cartridge unless the original save has been backed up.
