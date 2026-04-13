@@ -12,7 +12,7 @@ $script:PpkNativeAvailable = $false
 $script:PpkNativeLoadError = $null
 try {
     if (-not ("PpkSerialNative" -as [type])) {
-        Add-Type -ReferencedAssemblies @("System.IO.Ports", "System.ComponentModel.Primitives") -TypeDefinition @'
+        $script:_ppkTypeDef = @'
 using System;
 using System.IO;
 using System.IO.Ports;
@@ -155,13 +155,22 @@ public static class PpkSerialNative
                 serialStream.Write(NakBytes, 0, 1);
             }
         }
-
         return runningCrc;
     }
 }
 '@
+        # Try .NET Core assemblies first (pwsh 7+), then bare (Windows PowerShell 5.1).
+        # Redirect stderr (2>$null) to suppress noisy compiler diagnostics on the failing path.
+        $script:_ppkNativeCompiled = $false
+        try {
+            Add-Type -ReferencedAssemblies @("System.IO.Ports", "System.ComponentModel.Primitives") -TypeDefinition $script:_ppkTypeDef -ErrorAction Stop 2>$null
+            $script:_ppkNativeCompiled = $true
+        } catch { }
+        if (-not $script:_ppkNativeCompiled) {
+            Add-Type -TypeDefinition $script:_ppkTypeDef -ErrorAction Stop 2>$null
+        }
     }
-    $script:PpkNativeAvailable = $true
+    $script:PpkNativeAvailable = ("PpkSerialNative" -as [type]) -ne $null
 } catch {
     $script:PpkNativeAvailable = $false
     $script:PpkNativeLoadError = $_.Exception.Message

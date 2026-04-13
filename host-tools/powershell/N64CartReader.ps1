@@ -8,14 +8,16 @@ if (-not $Port) {
     $Port = Read-Host "Serial port, e.g. COM5"
 }
 
-while ($true) {
+:menuLoop while ($true) {
     Write-Host ""
     Write-Host "N64 Cart Reader"
     Write-Host "1. Dump ROM"
     Write-Host "2. Export save"
     Write-Host "3. Import save"
     Write-Host "Q. Quit"
-    $choice = (Read-Host "Select").Trim().ToUpperInvariant()
+    $input = Read-Host "Select"
+    if ($null -eq $input) { break }
+    $choice = $input.Trim().ToUpperInvariant()
 
     switch ($choice) {
         "1" {
@@ -43,10 +45,12 @@ while ($true) {
             }
         }
         "Q" {
-            break
+            break menuLoop
         }
         default {
-            Write-Host "Unknown selection."
+            if ($choice) {
+                Write-Host "Unknown selection: $choice"
+            }
         }
     }
 }
