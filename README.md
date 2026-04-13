@@ -34,8 +34,11 @@ See [docs/GETTING_STARTED.md](docs/GETTING_STARTED.md) for full setup instructio
 ./host-tools/powershell/N64CartReader.ps1 -Port COM5
 ```
 
-**macOS/Linux (Python):**
+**Windows/macOS/Linux (Python):**
 ```bash
+# example for windows
+python3 host-tools/python/pico_pak_n64_magic_cli.py --port /dev/ttyCOM5 n64-cart-id --rescan
+# example for linux
 python3 host-tools/python/pico_pak_n64_magic_cli.py --port /dev/ttyACM0 n64-cart-id --rescan
 ```
 
